@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "545531053222",
+    "project_id": "com-example-chitttiaiass-98902",
+    "storage_bucket": "com-example-chitttiaiass-98902.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:545531053222:android:1bf93d5327d6b5690fe067",
+        "android_client_info": {
+          "package_name": "com.example.chitttiaiassistant"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3Kzm63G6s41pmeK9iuyqA4pL9gwfmFRE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
