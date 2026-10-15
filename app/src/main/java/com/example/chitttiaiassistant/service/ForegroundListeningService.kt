@@ -74,7 +74,7 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
                     override fun onEndOfSpeech() {}
 
                     override fun onError(error: Int) {
-                        mainHandler.postDelayed({ startListeningLoop() }, 1500)
+                        mainHandler.postDelayed({ startListeningLoop() }, 2000)
                     }
 
                     override fun onResults(results: Bundle?) {

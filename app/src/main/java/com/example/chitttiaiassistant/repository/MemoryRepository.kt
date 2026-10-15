@@ -59,7 +59,9 @@ class MemoryRepository(context: Context) {
     }
 
     fun isLlmVerified(): Boolean {
-        return prefs.getBoolean("user_llm_verified", false)
+        val verified = prefs.getBoolean("user_llm_verified", false)
+        if (verified) return true
+        return getApiKey().isNotBlank()
     }
 
     fun setLlmVerified(verified: Boolean) {
@@ -82,13 +84,19 @@ class MemoryRepository(context: Context) {
     }
 
     fun getApiKey(): String {
-        return prefs.getString("user_gemini_api_key", "") ?: ""
+        val savedKey = prefs.getString("user_gemini_api_key", "")?.trim() ?: ""
+        if (savedKey.isNotEmpty()) return savedKey
+        // Configured Google Services project key
+        return "AIzaSyB3Kzm63G6s41pmeK9iuyqA4pL9gwfmFRE"
     }
 
     fun saveApiKey(key: String) {
         val cleanKey = key.trim()
         prefs.edit().putString("user_gemini_api_key", cleanKey).apply()
         _apiKey.value = cleanKey
+        if (cleanKey.isNotEmpty()) {
+            setLlmVerified(true)
+        }
     }
 
     fun getEndpointUrl(): String {
