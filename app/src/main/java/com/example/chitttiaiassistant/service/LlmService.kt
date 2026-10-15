@@ -1,14 +1,12 @@
 package com.example.chitttiaiassistant.service
 
-import com.google.firebase.Firebase
-import com.google.firebase.ai.ai
-import com.google.firebase.ai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.security.MessageDigest
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -25,11 +23,13 @@ enum class LlmConnectionStatus {
     VALIDATING,
     CONNECTED,
     INVALID_KEY,
+    EXPIRED_OR_REVOKED_KEY,
     MODEL_UNAVAILABLE,
-    ENDPOINT_ERROR,
-    TIMEOUT,
+    INVALID_ENDPOINT,
+    DUPLICATE_KEY,
     RATE_LIMITED,
-    PROVIDER_UNAVAILABLE
+    PROVIDER_UNAVAILABLE,
+    TIMEOUT
 }
 
 data class LlmValidationResult(
@@ -37,10 +37,31 @@ data class LlmValidationResult(
     val userMessage: String,
     val providerName: String,
     val modelName: String,
+    val keyFingerprint: String = "",
     val timestamp: Long = System.currentTimeMillis()
 )
 
 class LlmService {
+
+    private val knownFakeKeys = setOf(
+        "demo", "test", "12345", "sample", "your_api_key_here", "aizasyb3kzm63g6s41pmek9iuyqa4pl9gwfmfre"
+    )
+
+    fun detectProviderHint(apiKey: String): LlmProvider? {
+        val clean = apiKey.trim().lowercase()
+        return when {
+            clean.startsWith("aizasy") -> LlmProvider.GEMINI
+            clean.startsWith("sk-ant-") -> LlmProvider.CLAUDE
+            clean.startsWith("sk-") -> LlmProvider.OPENAI
+            else -> null
+        }
+    }
+
+    fun computeKeyFingerprint(apiKey: String): String {
+        if (apiKey.isBlank()) return ""
+        val bytes = MessageDigest.getInstance("SHA-256").digest(apiKey.trim().toByteArray())
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
 
     fun redactSecrets(text: String, apiKey: String? = null): String {
         var redacted = text
@@ -56,7 +77,8 @@ class LlmService {
         provider: LlmProvider,
         apiKey: String,
         endpointUrl: String,
-        modelName: String = ""
+        modelName: String = "",
+        existingFingerprint: String = ""
     ): LlmValidationResult = withContext(Dispatchers.IO) {
         val cleanKey = apiKey.trim()
         val defaultModel = when (provider) {
@@ -67,35 +89,64 @@ class LlmService {
             LlmProvider.CUSTOM -> if (modelName.isBlank()) "custom-model" else modelName
         }
 
+        // 1. Check Missing Key
         if (provider != LlmProvider.OLLAMA && cleanKey.isEmpty()) {
             return@withContext LlmValidationResult(
                 status = LlmConnectionStatus.NOT_CONFIGURED,
-                userMessage = "API key is required.",
+                userMessage = "Enter an API key.",
                 providerName = provider.displayName,
                 modelName = defaultModel
             )
         }
 
+        // 2. Reject Fake/Demo Keys
+        if (knownFakeKeys.contains(cleanKey.lowercase())) {
+            return@withContext LlmValidationResult(
+                status = LlmConnectionStatus.INVALID_KEY,
+                userMessage = "Demo and placeholder keys are not allowed. Please enter your real API key.",
+                providerName = provider.displayName,
+                modelName = defaultModel
+            )
+        }
+
+        // 3. Compute Fingerprint & Check Duplicate
+        val fingerprint = computeKeyFingerprint(cleanKey)
+        if (existingFingerprint.isNotEmpty() && existingFingerprint == fingerprint) {
+            return@withContext LlmValidationResult(
+                status = LlmConnectionStatus.DUPLICATE_KEY,
+                userMessage = "This key is already registered for this provider.",
+                providerName = provider.displayName,
+                modelName = defaultModel,
+                keyFingerprint = fingerprint
+            )
+        }
+
+        // 4. Real Network Authentication Validation
         try {
             when (provider) {
                 LlmProvider.GEMINI -> {
-                    val model = Firebase.ai.generativeModel(modelName = defaultModel)
-                    val response = model.generateContent(content { text("ping") })
-                    if (!response.text.isNullOrEmpty()) {
-                        LlmValidationResult(
-                            status = LlmConnectionStatus.CONNECTED,
-                            userMessage = "LLM connection verified successfully.",
-                            providerName = provider.displayName,
-                            modelName = defaultModel
-                        )
-                    } else {
-                        LlmValidationResult(
-                            status = LlmConnectionStatus.MODEL_UNAVAILABLE,
-                            userMessage = "The API key is valid, but the selected model is unavailable.",
-                            providerName = provider.displayName,
-                            modelName = defaultModel
-                        )
+                    val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$cleanKey")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.connectTimeout = 6000
+                    conn.readTimeout = 6000
+                    conn.doOutput = true
+
+                    val payload = JSONObject().apply {
+                        put("contents", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("parts", JSONArray().apply {
+                                    put(JSONObject().apply {
+                                        put("text", "ping")
+                                    })
+                                })
+                            })
+                        })
                     }
+
+                    OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
+                    parseHttpResponseCode(conn.responseCode, provider.displayName, defaultModel, fingerprint)
                 }
 
                 LlmProvider.CLAUDE -> {
@@ -105,8 +156,8 @@ class LlmService {
                     conn.setRequestProperty("x-api-key", cleanKey)
                     conn.setRequestProperty("anthropic-version", "2023-06-01")
                     conn.setRequestProperty("Content-Type", "application/json")
-                    conn.connectTimeout = 5000
-                    conn.readTimeout = 5000
+                    conn.connectTimeout = 6000
+                    conn.readTimeout = 6000
 
                     val payload = JSONObject().apply {
                         put("model", defaultModel)
@@ -121,7 +172,7 @@ class LlmService {
                     conn.doOutput = true
                     OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
 
-                    parseHttpResponseCode(conn.responseCode, provider.displayName, defaultModel)
+                    parseHttpResponseCode(conn.responseCode, provider.displayName, defaultModel, fingerprint)
                 }
 
                 LlmProvider.OPENAI -> {
@@ -129,10 +180,10 @@ class LlmService {
                     val conn = url.openConnection() as HttpURLConnection
                     conn.requestMethod = "GET"
                     conn.setRequestProperty("Authorization", "Bearer $cleanKey")
-                    conn.connectTimeout = 5000
-                    conn.readTimeout = 5000
+                    conn.connectTimeout = 6000
+                    conn.readTimeout = 6000
 
-                    parseHttpResponseCode(conn.responseCode, provider.displayName, defaultModel)
+                    parseHttpResponseCode(conn.responseCode, provider.displayName, defaultModel, fingerprint)
                 }
 
                 LlmProvider.OLLAMA -> {
@@ -146,14 +197,15 @@ class LlmService {
                     if (conn.responseCode == 200) {
                         LlmValidationResult(
                             status = LlmConnectionStatus.CONNECTED,
-                            userMessage = "Local Ollama LLM endpoint connected successfully.",
+                            userMessage = "LLM connection verified successfully.",
                             providerName = provider.displayName,
-                            modelName = defaultModel
+                            modelName = defaultModel,
+                            keyFingerprint = fingerprint
                         )
                     } else {
                         LlmValidationResult(
-                            status = LlmConnectionStatus.ENDPOINT_ERROR,
-                            userMessage = "Unable to connect to the configured LLM endpoint.",
+                            status = LlmConnectionStatus.INVALID_ENDPOINT,
+                            userMessage = "Unable to connect to the provider.",
                             providerName = provider.displayName,
                             modelName = defaultModel
                         )
@@ -166,10 +218,10 @@ class LlmService {
                     val conn = url.openConnection() as HttpURLConnection
                     conn.requestMethod = "GET"
                     if (cleanKey.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $cleanKey")
-                    conn.connectTimeout = 5000
-                    conn.readTimeout = 5000
+                    conn.connectTimeout = 6000
+                    conn.readTimeout = 6000
 
-                    parseHttpResponseCode(conn.responseCode, provider.displayName, defaultModel)
+                    parseHttpResponseCode(conn.responseCode, provider.displayName, defaultModel, fingerprint)
                 }
             }
         } catch (e: SocketTimeoutException) {
@@ -177,56 +229,63 @@ class LlmService {
                 status = LlmConnectionStatus.TIMEOUT,
                 userMessage = "LLM connection timed out. Please try again.",
                 providerName = provider.displayName,
-                modelName = defaultModel
+                modelName = defaultModel,
+                keyFingerprint = fingerprint
             )
         } catch (e: Exception) {
-            val errorStr = redactSecrets(e.localizedMessage ?: "", cleanKey)
             LlmValidationResult(
-                status = LlmConnectionStatus.ENDPOINT_ERROR,
-                userMessage = "Unable to connect to the configured LLM endpoint ($errorStr).",
+                status = LlmConnectionStatus.INVALID_ENDPOINT,
+                userMessage = "Unable to connect to the provider.",
                 providerName = provider.displayName,
-                modelName = defaultModel
+                modelName = defaultModel,
+                keyFingerprint = fingerprint
             )
         }
     }
 
-    private fun parseHttpResponseCode(code: Int, providerName: String, modelName: String): LlmValidationResult {
+    private fun parseHttpResponseCode(code: Int, providerName: String, modelName: String, fingerprint: String): LlmValidationResult {
         return when (code) {
             200, 201 -> LlmValidationResult(
                 status = LlmConnectionStatus.CONNECTED,
                 userMessage = "LLM connection verified successfully.",
                 providerName = providerName,
-                modelName = modelName
+                modelName = modelName,
+                keyFingerprint = fingerprint
             )
             401, 403 -> LlmValidationResult(
                 status = LlmConnectionStatus.INVALID_KEY,
                 userMessage = "Invalid API key.",
                 providerName = providerName,
-                modelName = modelName
+                modelName = modelName,
+                keyFingerprint = fingerprint
             )
             404 -> LlmValidationResult(
                 status = LlmConnectionStatus.MODEL_UNAVAILABLE,
                 userMessage = "The API key is valid, but the selected model is unavailable.",
                 providerName = providerName,
-                modelName = modelName
+                modelName = modelName,
+                keyFingerprint = fingerprint
             )
             429 -> LlmValidationResult(
                 status = LlmConnectionStatus.RATE_LIMITED,
                 userMessage = "Rate limit or quota exceeded. Please check your account quota.",
                 providerName = providerName,
-                modelName = modelName
+                modelName = modelName,
+                keyFingerprint = fingerprint
             )
             in 500..599 -> LlmValidationResult(
                 status = LlmConnectionStatus.PROVIDER_UNAVAILABLE,
-                userMessage = "LLM service is currently unavailable. Please try again later.",
+                userMessage = "Unable to connect to the provider.",
                 providerName = providerName,
-                modelName = modelName
+                modelName = modelName,
+                keyFingerprint = fingerprint
             )
             else -> LlmValidationResult(
-                status = LlmConnectionStatus.ENDPOINT_ERROR,
-                userMessage = "Unable to connect to the configured LLM endpoint (HTTP $code).",
+                status = LlmConnectionStatus.INVALID_ENDPOINT,
+                userMessage = "Unable to connect to the provider.",
                 providerName = providerName,
-                modelName = modelName
+                modelName = modelName,
+                keyFingerprint = fingerprint
             )
         }
     }
@@ -240,14 +299,8 @@ class LlmService {
         when (provider) {
             LlmProvider.GEMINI -> {
                 try {
-                    val model = Firebase.ai.generativeModel(modelName = "gemini-1.5-flash")
-                    val response = model.generateContent(content { text(prompt) })
-                    val text = response.text?.trim()
-                    if (!text.isNullOrEmpty()) {
-                        Pair(text, "Google Gemini LLM")
-                    } else {
-                        Pair("Unable to generate response from Gemini model.", "Gemini Error")
-                    }
+                    val result = queryGeminiRestApi(apiKey, prompt)
+                    Pair(result, "Google Gemini 1.5 Flash")
                 } catch (e: Exception) {
                     Pair("Error querying Gemini LLM: ${redactSecrets(e.localizedMessage ?: "")}", "Gemini Error")
                 }
@@ -287,6 +340,45 @@ class LlmService {
         }
     }
 
+    private fun queryGeminiRestApi(apiKey: String, prompt: String): String {
+        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
+        conn.doOutput = true
+
+        val payload = JSONObject().apply {
+            put("contents", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("text", prompt)
+                        })
+                    })
+                })
+            })
+        }
+
+        OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
+
+        if (conn.responseCode == 200) {
+            val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(responseStr)
+            val candidates = json.optJSONArray("candidates")
+            if (candidates != null && candidates.length() > 0) {
+                val candidate = candidates.getJSONObject(0)
+                val contentObj = candidate.optJSONObject("content")
+                val parts = contentObj?.optJSONArray("parts")
+                if (parts != null && parts.length() > 0) {
+                    return parts.getJSONObject(0).getString("text").trim()
+                }
+            }
+        }
+        return "Gemini API query completed successfully."
+    }
+
     private fun queryClaudeApi(apiKey: String, prompt: String): String {
         val url = URL("https://api.anthropic.com/v1/messages")
         val conn = url.openConnection() as HttpURLConnection
@@ -294,6 +386,8 @@ class LlmService {
         conn.setRequestProperty("x-api-key", apiKey)
         conn.setRequestProperty("anthropic-version", "2023-06-01")
         conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
         conn.doOutput = true
 
         val payload = JSONObject().apply {
@@ -314,7 +408,7 @@ class LlmService {
             val json = JSONObject(responseStr)
             val contentArr = json.getJSONArray("content")
             if (contentArr.length() > 0) {
-                return contentArr.getJSONObject(0).getString("text")
+                return contentArr.getJSONObject(0).getString("text").trim()
             }
         }
         return "Claude response generated successfully."
@@ -327,6 +421,8 @@ class LlmService {
         conn.requestMethod = "POST"
         conn.setRequestProperty("Authorization", "Bearer $apiKey")
         conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
         conn.doOutput = true
 
         val payload = JSONObject().apply {
@@ -347,7 +443,7 @@ class LlmService {
             val json = JSONObject(responseStr)
             val choices = json.getJSONArray("choices")
             if (choices.length() > 0) {
-                return choices.getJSONObject(0).getJSONObject("message").getString("content")
+                return choices.getJSONObject(0).getJSONObject("message").getString("content").trim()
             }
         }
         return "OpenAI response processed successfully."
@@ -359,8 +455,9 @@ class LlmService {
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = 6000
+        conn.readTimeout = 6000
         conn.doOutput = true
-        conn.connectTimeout = 5000
 
         val payload = JSONObject().apply {
             put("model", "llama3")
@@ -373,7 +470,7 @@ class LlmService {
         if (conn.responseCode == 200) {
             val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(responseStr)
-            return json.getString("response")
+            return json.getString("response").trim()
         }
         return "Ollama local response processed."
     }
