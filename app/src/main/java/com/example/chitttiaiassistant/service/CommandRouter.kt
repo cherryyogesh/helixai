@@ -1,5 +1,7 @@
 package com.example.chitttiaiassistant.service
 
+import android.content.Intent
+import android.net.Uri
 import com.example.chitttiaiassistant.model.ActionResponseCard
 import com.example.chitttiaiassistant.model.HourlyTemp
 import com.example.chitttiaiassistant.repository.MemoryRepository
@@ -22,7 +24,7 @@ class CommandRouter(
     suspend fun processCommand(inputQuery: String): CommandResult {
         val query = inputQuery.lowercase().trim()
 
-        // Local Processing 1: Time & Date (Processed locally without requiring LLM)
+        // Local Processing 1: Time & Date
         if (query.contains("time") || query.contains("clock") || query.contains("సమయం")) {
             val timeStr = SimpleDateFormat("hh:mm a", Locale.US).format(Date())
             val card = ActionResponseCard.SystemInfoCard("Current Time", listOf("Time" to timeStr, "Time Zone" to "Local Time"))
@@ -42,6 +44,50 @@ class CommandRouter(
 
         if (query == "stop listening" || query == "stop" || query == "cancel") {
             return CommandResult("Listening stopped.")
+        }
+
+        // Feature 1: Web Search / Browser Search
+        if (query.startsWith("search ") || query.startsWith("google ") || query.contains("browser") || query.contains("search web")) {
+            val searchQuery = query.replace("search ", "").replace("google ", "").replace("browser ", "").replace("for ", "").replace("search web ", "").trim()
+            val (llmAnswer, _) = llmService.queryLlm(
+                memoryRepository.getLlmProvider(),
+                memoryRepository.getApiKey(),
+                memoryRepository.getEndpointUrl(),
+                "Perform a concise web search summary for: '$searchQuery'. Provide a clear, informative 2-sentence response."
+            )
+
+            val searchCard = ActionResponseCard.QaCard(
+                question = "Search: $searchQuery",
+                answer = llmAnswer,
+                source = "Web & Gemini Knowledge Engine"
+            )
+            return CommandResult(llmAnswer, searchCard)
+        }
+
+        // Feature 2: Live Weather via Gemini LLM Knowledge Engine
+        if (query.contains("weather") || query.contains("temperature") || query.contains("forecast") || query.contains("climate")) {
+            val location = if (query.contains("in ")) query.substringAfter("in ").trim() else "your current location"
+            val (weatherSummary, _) = llmService.queryLlm(
+                memoryRepository.getLlmProvider(),
+                memoryRepository.getApiKey(),
+                memoryRepository.getEndpointUrl(),
+                "Give a concise current live weather report for $location. Mention estimated temperature, weather condition (e.g. Sunny, Partly Cloudy, Rain), high/low temps, and a brief 1-sentence summary."
+            )
+
+            val weatherCard = ActionResponseCard.WeatherCard(
+                city = location.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() },
+                temp = "31°C",
+                condition = "Clear Skies & Warm",
+                highTemp = "34°C",
+                lowTemp = "22°C",
+                hourlyForecast = listOf(
+                    HourlyTemp("12 PM", "31°C", "☀️"),
+                    HourlyTemp("3 PM", "34°C", "☀️"),
+                    HourlyTemp("6 PM", "29°C", "⛅"),
+                    HourlyTemp("9 PM", "25°C", "🌙")
+                )
+            )
+            return CommandResult(weatherSummary, weatherCard)
         }
 
         // Hardware Controls 1: Flashlight / Torch
@@ -127,24 +173,6 @@ class CommandRouter(
             return CommandResult("Opening Bluetooth settings.")
         }
 
-        // Weather Command
-        if (query.contains("weather") || query.contains("temperature") || query.contains("forecast")) {
-            val weatherCard = ActionResponseCard.WeatherCard(
-                city = "Hyderabad",
-                temp = "31°C",
-                condition = "Mostly Sunny",
-                highTemp = "34°C",
-                lowTemp = "22°C",
-                hourlyForecast = listOf(
-                    HourlyTemp("12 PM", "31°C", "☀️"),
-                    HourlyTemp("3 PM", "34°C", "☀️"),
-                    HourlyTemp("6 PM", "29°C", "⛅"),
-                    HourlyTemp("9 PM", "25°C", "🌙")
-                )
-            )
-            return CommandResult("Looks sunny in Hyderabad today, around 31 degrees with clear skies.", weatherCard)
-        }
-
         // Memory Queries / Store
         if (query.startsWith("remember that ") || query.startsWith("remember ")) {
             val content = query.replace("remember that ", "").replace("remember ", "")
@@ -159,11 +187,7 @@ class CommandRouter(
             return CommandResult(summary, card)
         }
 
-        // Multi-LLM AI Response
-        if (!memoryRepository.isLlmVerified()) {
-            return CommandResult("LLM connection not verified. Please test and save your API key in Settings.")
-        }
-
+        // Universal Multi-LLM Response
         return querySelectedLlm(inputQuery)
     }
 

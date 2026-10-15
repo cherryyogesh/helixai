@@ -104,6 +104,8 @@ class MainActivity : ComponentActivity() {
             shouldStartVoiceOnInit = true
         } else if (startVoiceExtra || Intent.ACTION_ASSIST == action || Intent.ACTION_VOICE_COMMAND == action) {
             shouldStartVoiceOnInit = true
+        } else {
+            shouldStartVoiceOnInit = false
         }
     }
 }
@@ -166,11 +168,6 @@ fun ChittiAppMain(
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
         )
     }
-    var hasLocationPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        )
-    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -181,7 +178,6 @@ fun ChittiAppMain(
         }
         hasCallPermission = results[Manifest.permission.CALL_PHONE] ?: hasCallPermission
         hasContactsPermission = results[Manifest.permission.READ_CONTACTS] ?: hasContactsPermission
-        hasLocationPermission = results[Manifest.permission.ACCESS_FINE_LOCATION] ?: hasLocationPermission
     }
 
     fun requestPermissions() {
