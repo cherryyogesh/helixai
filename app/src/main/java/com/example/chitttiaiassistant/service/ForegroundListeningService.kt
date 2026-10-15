@@ -52,6 +52,13 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val action = intent?.action
+        if (action == ACTION_EXIT_HELIX) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
@@ -59,7 +66,10 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        startListeningLoop()
+        // Only start background audio capture if explicitly enabled by user
+        if (memoryRepository.isBackgroundWakeWordEnabled()) {
+            startListeningLoop()
+        }
         return START_STICKY
     }
 
@@ -74,7 +84,9 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
                     override fun onEndOfSpeech() {}
 
                     override fun onError(error: Int) {
-                        mainHandler.postDelayed({ startListeningLoop() }, 2000)
+                        if (memoryRepository.isBackgroundWakeWordEnabled()) {
+                            mainHandler.postDelayed({ startListeningLoop() }, 3000)
+                        }
                     }
 
                     override fun onResults(results: Bundle?) {
@@ -82,8 +94,8 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
                         val text = matches?.firstOrNull() ?: ""
                         if (text.isNotBlank()) {
                             handleBackgroundVoiceCommand(text)
-                        } else {
-                            mainHandler.postDelayed({ startListeningLoop() }, 1000)
+                        } else if (memoryRepository.isBackgroundWakeWordEnabled()) {
+                            mainHandler.postDelayed({ startListeningLoop() }, 1500)
                         }
                     }
 
@@ -95,6 +107,7 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startListeningLoop() {
+        if (!memoryRepository.isBackgroundWakeWordEnabled()) return
         try {
             if (SpeechRecognizer.isRecognitionAvailable(this)) {
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -122,7 +135,9 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
                 textToSpeech?.speak(result.spokenResponse, TextToSpeech.QUEUE_FLUSH, null, "BG_HELIX_UTTERANCE")
             }
 
-            mainHandler.postDelayed({ startListeningLoop() }, 3000)
+            if (memoryRepository.isBackgroundWakeWordEnabled()) {
+                mainHandler.postDelayed({ startListeningLoop() }, 4000)
+            }
         }
     }
 
@@ -168,12 +183,23 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val exitIntent = Intent(this, ForegroundListeningService::class.java).apply {
+            action = ACTION_EXIT_HELIX
+        }
+        val exitPendingIntent = PendingIntent.getService(
+            this,
+            1,
+            exitIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Helix System Voice Assistant")
-            .setContentText("Listening hands-free over home screen & all apps...")
+            .setContentText("Helix service active • Tap to open Voice Assistant")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(tapPendingIntent)
-            .addAction(R.drawable.ic_launcher_foreground, "🎙️ Open Voice HUD", tapPendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "🎙️ Open HUD", tapPendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "🛑 Exit Helix", exitPendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
@@ -182,6 +208,7 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
     companion object {
         private const val CHANNEL_ID = "helix_listening_channel"
         private const val NOTIFICATION_ID = 1001
+        const val ACTION_EXIT_HELIX = "com.example.chitttiaiassistant.ACTION_EXIT_HELIX"
 
         fun startService(context: Context) {
             val intent = Intent(context, ForegroundListeningService::class.java)
@@ -190,6 +217,13 @@ class ForegroundListeningService : Service(), TextToSpeech.OnInitListener {
             } else {
                 context.startService(intent)
             }
+        }
+
+        fun stopService(context: Context) {
+            val intent = Intent(context, ForegroundListeningService::class.java).apply {
+                action = ACTION_EXIT_HELIX
+            }
+            context.startService(intent)
         }
     }
 }

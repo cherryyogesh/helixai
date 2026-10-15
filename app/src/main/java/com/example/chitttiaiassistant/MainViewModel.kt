@@ -13,8 +13,10 @@ import com.example.chitttiaiassistant.model.Sender
 import com.example.chitttiaiassistant.model.UserMemoryItem
 import com.example.chitttiaiassistant.repository.AutomationRepository
 import com.example.chitttiaiassistant.repository.MemoryRepository
+import com.example.chitttiaiassistant.repository.PrivacyMode
 import com.example.chitttiaiassistant.service.CommandRouter
 import com.example.chitttiaiassistant.service.DiagnosticReport
+import com.example.chitttiaiassistant.service.ForegroundListeningService
 import com.example.chitttiaiassistant.service.HelixVoiceAssistant
 import com.example.chitttiaiassistant.service.InstalledAppInfo
 import com.example.chitttiaiassistant.service.LlmConnectionStatus
@@ -80,6 +82,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val llmEndpointUrl: StateFlow<String> = memoryRepository.endpointUrl
     val isLlmVerified: StateFlow<Boolean> = memoryRepository.isLlmVerifiedFlow
     val autonomyLevel: StateFlow<AutonomyLevel> = memoryRepository.autonomyLevelFlow
+    val selectedGeminiModel: StateFlow<String> = memoryRepository.selectedGeminiModel
+    val privacyMode: StateFlow<PrivacyMode> = memoryRepository.privacyModeFlow
+    val isBgWakeWordEnabled: StateFlow<Boolean> = memoryRepository.isBackgroundWakeWordEnabledFlow
 
     private val _installedApps = MutableStateFlow<List<InstalledAppInfo>>(emptyList())
     val installedApps: StateFlow<List<InstalledAppInfo>> = _installedApps.asStateFlow()
@@ -110,8 +115,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         memoryRepository.saveAutonomyLevel(level)
     }
 
+    fun savePrivacyMode(mode: PrivacyMode) {
+        memoryRepository.savePrivacyMode(mode)
+    }
+
+    fun saveBgWakeWordEnabled(enabled: Boolean) {
+        memoryRepository.saveBackgroundWakeWordEnabled(enabled)
+    }
+
+    fun saveGeminiModel(model: String) {
+        memoryRepository.saveGeminiModel(model)
+    }
+
+    fun exitHelix() {
+        ForegroundListeningService.stopService(context)
+        voiceAssistant.cancel()
+    }
+
     suspend fun validateLlmConfig(provider: LlmProvider, key: String, endpointUrl: String): LlmValidationResult {
-        val result = llmService.testConnection(provider, key, endpointUrl)
+        val result = llmService.testConnection(provider, key, endpointUrl, selectedGeminiModel.value)
         val isSuccess = result.status == LlmConnectionStatus.CONNECTED
         memoryRepository.setLlmVerified(isSuccess)
         if (isSuccess) {

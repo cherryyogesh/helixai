@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Security
@@ -34,6 +35,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,6 +53,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chitttiaiassistant.model.AutonomyLevel
+import com.example.chitttiaiassistant.repository.PrivacyMode
+import com.example.chitttiaiassistant.service.DiagnosticReport
 import com.example.chitttiaiassistant.service.LlmConnectionStatus
 import com.example.chitttiaiassistant.service.LlmProvider
 import com.example.chitttiaiassistant.service.LlmValidationResult
@@ -72,28 +77,41 @@ fun SettingsScreen(
     currentEndpointUrl: String,
     isVerified: Boolean,
     currentAutonomyLevel: AutonomyLevel,
+    selectedGeminiModel: String,
+    currentPrivacyMode: PrivacyMode,
+    isBgWakeWordEnabled: Boolean,
+    diagnosticReport: DiagnosticReport?,
     onSaveAutonomyLevel: (AutonomyLevel) -> Unit,
+    onSaveGeminiModel: (String) -> Unit,
+    onSavePrivacyMode: (PrivacyMode) -> Unit,
+    onSaveBgWakeWord: (Boolean) -> Unit,
+    onRunDiagnostics: () -> Unit,
     onValidateLlmConfig: suspend (LlmProvider, String, String) -> LlmValidationResult,
     hasMicPermission: Boolean,
     hasNotificationPermission: Boolean,
     hasCallPermission: Boolean,
     hasContactsPermission: Boolean,
     onRequestPermissions: () -> Unit,
-    onClearChatHistory: () -> Unit
+    onClearChatHistory: () -> Unit,
+    onExitHelix: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
 
     var pitch by remember { mutableFloatStateOf(1.0f) }
     var speed by remember { mutableFloatStateOf(1.0f) }
     var selectedProvider by remember { mutableStateOf(currentProvider) }
+    var selectedModel by remember { mutableStateOf(selectedGeminiModel) }
     var selectedAutonomy by remember { mutableStateOf(currentAutonomyLevel) }
+    var selectedPrivacy by remember { mutableStateOf(currentPrivacyMode) }
+    var bgWakeWordState by remember { mutableStateOf(isBgWakeWordEnabled) }
+
     var apiKeyInput by remember { mutableStateOf(currentApiKey) }
     var endpointInput by remember { mutableStateOf(currentEndpointUrl) }
 
     var isValidating by remember { mutableStateOf(false) }
     var validationResult by remember {
         mutableStateOf<LlmValidationResult?>(
-            if (isVerified) LlmValidationResult(LlmConnectionStatus.CONNECTED, "Verified", currentProvider.displayName, "Active Model") else null
+            if (isVerified) LlmValidationResult(LlmConnectionStatus.CONNECTED, "Verified", currentProvider.displayName, selectedModel) else null
         )
     }
 
@@ -112,7 +130,7 @@ fun SettingsScreen(
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 2.sp
             )
-            Text(text = "Voice preferences, Multi-LLM AI models & security", color = TextSecondary, fontSize = 13.sp)
+            Text(text = "Voice privacy, Gemini models & system controls", color = TextSecondary, fontSize = 13.sp)
 
             Spacer(modifier = Modifier.height(20.dp))
 
@@ -140,33 +158,33 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(text = "Helix User Profile", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                        Text(text = "Active LLM: ${selectedProvider.displayName}", color = BrightCyan, fontSize = 13.sp)
+                        Text(text = "Active LLM: ${selectedProvider.displayName} ($selectedModel)", color = BrightCyan, fontSize = 13.sp)
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Autonomy Level Selector Card
-            Text(text = "ASSISTANT AUTONOMY LEVEL", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            // Privacy & Microphone Mode Card
+            Text(text = "MICROPHONE PRIVACY & WAKE WORD", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
             Spacer(modifier = Modifier.height(8.dp))
 
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, GlowingBorder, RoundedCornerShape(16.dp)),
+                    .border(1.dp, NeonCyan, RoundedCornerShape(16.dp)),
                 colors = CardDefaults.cardColors(containerColor = CardBackground)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Psychology, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.Mic, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(22.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Autonomy Mode", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "Microphone Activation Mode", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    AutonomyLevel.entries.forEach { level ->
-                        val isSelected = selectedAutonomy == level
+                    PrivacyMode.entries.forEach { mode ->
+                        val isSelected = selectedPrivacy == mode
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -175,8 +193,8 @@ fun SettingsScreen(
                                 .background(if (isSelected) NeonCyan.copy(alpha = 0.2f) else DarkBackground)
                                 .border(1.dp, if (isSelected) NeonCyan else GlowingBorder, RoundedCornerShape(8.dp))
                                 .clickable {
-                                    selectedAutonomy = level
-                                    onSaveAutonomyLevel(level)
+                                    selectedPrivacy = mode
+                                    onSavePrivacyMode(mode)
                                 }
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
@@ -186,20 +204,41 @@ fun SettingsScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(text = level.displayName, color = if (isSelected) NeonCyan else TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Text(text = mode.displayName, color = if (isSelected) NeonCyan else TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     if (isSelected) Text(text = "✓ Active", color = NeonCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
-                                Text(text = level.description, color = TextSecondary, fontSize = 11.sp)
+                                Text(text = mode.description, color = TextSecondary, fontSize = 11.sp)
                             }
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "Background Wake-Word Detection", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(text = "Listen for 'Hey Helix' when app is minimized (Off by default)", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = bgWakeWordState,
+                            onCheckedChange = {
+                                bgWakeWordState = it
+                                onSaveBgWakeWord(it)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = DarkBackground, checkedTrackColor = NeonCyan)
+                        )
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Multi-LLM Engine Configuration Card
-            Text(text = "AI LLM ENGINE CONFIGURATION", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            // AI LLM Engine Configuration & Gemini Model Selector
+            Text(text = "AI LLM CONFIGURATION & GEMINI MODELS", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
             Spacer(modifier = Modifier.height(8.dp))
 
             Card(
@@ -220,11 +259,11 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Key, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(22.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Select LLM Provider", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "LLM Provider & Model", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Provider Chips
+                    // Provider Selection Chips
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         LlmProvider.entries.forEach { provider ->
                             val isSelected = selectedProvider == provider
@@ -247,6 +286,33 @@ fun SettingsScreen(
                                 ) {
                                     Text(text = provider.displayName, color = if (isSelected) NeonCyan else TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     if (isSelected) Text(text = "✓ Selected", color = NeonCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    if (selectedProvider == LlmProvider.GEMINI) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(text = "Gemini Model Selection:", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val geminiModels = listOf("gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp")
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            geminiModels.forEach { m ->
+                                val isMSelected = selectedModel == m
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isMSelected) BrightCyan.copy(alpha = 0.2f) else DarkBackground)
+                                        .border(1.dp, if (isMSelected) BrightCyan else GlowingBorder, RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            selectedModel = m
+                                            onSaveGeminiModel(m)
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = m.replace("gemini-", ""), color = if (isMSelected) BrightCyan else TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -327,8 +393,8 @@ fun SettingsScreen(
                         } else {
                             Text(
                                 text = when (validationResult?.status) {
-                                    LlmConnectionStatus.CONNECTED -> "✓ LLM Connected & Saved"
-                                    null -> "Test & Connect ${selectedProvider.displayName}"
+                                    LlmConnectionStatus.CONNECTED -> "✓ Connected & Saved"
+                                    null -> "Test Gemini Connection ➔"
                                     else -> "Retry LLM Connection"
                                 },
                                 color = DarkBackground,
@@ -341,8 +407,8 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Voice & Speech Customization Card
-            Text(text = "VOICE & SPEECH SYNTHESIS", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            // System Voice & Pipeline Diagnostics
+            Text(text = "VOICE & SYSTEM DIAGNOSTICS", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
             Spacer(modifier = Modifier.height(8.dp))
 
             Card(
@@ -352,101 +418,61 @@ fun SettingsScreen(
                 colors = CardDefaults.cardColors(containerColor = CardBackground)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = "Voice Pitch: ${String.format(java.util.Locale.US, "%.1f", pitch)}x", color = TextPrimary, fontSize = 14.sp)
-                    Slider(
-                        value = pitch,
-                        onValueChange = { pitch = it },
-                        valueRange = 0.5f..1.5f,
-                        colors = SliderDefaults.colors(thumbColor = NeonCyan, activeTrackColor = BrightCyan)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(text = "Speech Rate: ${String.format(java.util.Locale.US, "%.1f", speed)}x", color = TextPrimary, fontSize = 14.sp)
-                    Slider(
-                        value = speed,
-                        onValueChange = { speed = it },
-                        valueRange = 0.5f..1.5f,
-                        colors = SliderDefaults.colors(thumbColor = NeonCyan, activeTrackColor = BrightCyan)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Permissions Health Check Card
-            Text(text = "PERMISSIONS HEALTH CHECK", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, GlowingBorder, RoundedCornerShape(16.dp)),
-                colors = CardDefaults.cardColors(containerColor = CardBackground)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    PermissionRow("Microphone Access", hasMicPermission)
-                    PermissionRow("Notifications Indicator", hasNotificationPermission)
-                    PermissionRow("Phone Calling Permission", hasCallPermission)
-                    PermissionRow("Contacts Reading", hasContactsPermission)
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
                     Button(
-                        onClick = onRequestPermissions,
+                        onClick = onRunDiagnostics,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Grant / Fix Permissions", color = TextPrimary)
+                        Text("Run Voice & System Diagnostics 🧪", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    }
+
+                    diagnosticReport?.let { report ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (report.isOverallPassed) "✓ All 7 Diagnostic Checks Passed" else "⚠️ Some Diagnostic Checks Failed",
+                            color = if (report.isOverallPassed) AccentGreen else AccentError,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        report.stepResults.forEach { step ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = "${step.stepNumber}. ${step.stepName}", color = TextPrimary, fontSize = 12.sp)
+                                Text(
+                                    text = if (step.isPassed) "PASS" else "FAIL",
+                                    color = if (step.isPassed) AccentGreen else AccentError,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Privacy & Logs
-            Text(text = "PRIVACY & HISTORY CONTROLS", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            // Exit Helix Action
+            Text(text = "SYSTEM CONTROLS & EXIT", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedButton(
-                onClick = onClearChatHistory,
+            Button(
+                onClick = onExitHelix,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentError),
-                border = androidx.compose.foundation.BorderStroke(1.dp, AccentError)
+                colors = ButtonDefaults.buttonColors(containerColor = AccentError),
+                shape = RoundedCornerShape(10.dp)
             ) {
-                Text("Clear Conversation History")
+                Text("🛑 Exit Helix & Terminate Background Service", color = TextPrimary, fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(32.dp))
-        }
-    }
-}
-
-@Composable
-private fun PermissionRow(title: String, isGranted: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(text = title, color = TextPrimary, fontSize = 14.sp)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (isGranted) Icons.Default.Check else Icons.Default.Security,
-                contentDescription = null,
-                tint = if (isGranted) AccentGreen else AccentError,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = if (isGranted) "Granted" else "Missing",
-                color = if (isGranted) AccentGreen else AccentError,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
         }
     }
 }

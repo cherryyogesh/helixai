@@ -133,6 +133,7 @@ fun ChittiAppMain(
     val audioLevel by viewModel.audioLevel.collectAsState()
     val currentCard by viewModel.currentCard.collectAsState()
     val chatHistory by viewModel.chatHistory.collectAsState()
+    val diagnosticReport by viewModel.diagnosticReport.collectAsState()
 
     val memories by viewModel.memories.collectAsState()
     val automations by viewModel.automations.collectAsState()
@@ -144,6 +145,9 @@ fun ChittiAppMain(
     val llmEndpointUrl by viewModel.llmEndpointUrl.collectAsState()
     val isLlmVerified by viewModel.isLlmVerified.collectAsState()
     val autonomyLevel by viewModel.autonomyLevel.collectAsState()
+    val selectedGeminiModel by viewModel.selectedGeminiModel.collectAsState()
+    val privacyMode by viewModel.privacyMode.collectAsState()
+    val isBgWakeWordEnabled by viewModel.isBgWakeWordEnabled.collectAsState()
 
     // Permission Checking States
     var hasMicPermission by remember {
@@ -314,7 +318,15 @@ fun ChittiAppMain(
                     currentEndpointUrl = llmEndpointUrl,
                     isVerified = isLlmVerified,
                     currentAutonomyLevel = autonomyLevel,
+                    selectedGeminiModel = selectedGeminiModel,
+                    currentPrivacyMode = privacyMode,
+                    isBgWakeWordEnabled = isBgWakeWordEnabled,
+                    diagnosticReport = diagnosticReport,
                     onSaveAutonomyLevel = { level -> viewModel.saveAutonomyLevel(level) },
+                    onSaveGeminiModel = { model -> viewModel.saveGeminiModel(model) },
+                    onSavePrivacyMode = { mode -> viewModel.savePrivacyMode(mode) },
+                    onSaveBgWakeWord = { enabled -> viewModel.saveBgWakeWordEnabled(enabled) },
+                    onRunDiagnostics = { viewModel.runVoiceDiagnostics() },
                     onValidateLlmConfig = { provider, key, endpoint ->
                         viewModel.validateLlmConfig(provider, key, endpoint)
                     },
@@ -323,7 +335,8 @@ fun ChittiAppMain(
                     hasCallPermission = hasCallPermission,
                     hasContactsPermission = hasContactsPermission,
                     onRequestPermissions = { requestPermissions() },
-                    onClearChatHistory = { viewModel.clearChatHistory() }
+                    onClearChatHistory = { viewModel.clearChatHistory() },
+                    onExitHelix = { viewModel.exitHelix() }
                 )
             }
 

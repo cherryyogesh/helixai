@@ -8,6 +8,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class PrivacyMode(val displayName: String, val description: String) {
+    PUSH_TO_TALK("Push-to-Talk Mode (Default)", "Microphone stays completely OFF. Activates only when you tap the Mic button."),
+    APP_OPEN_WAKE_WORD("App-Open Wake-Word Mode", "Listens for 'Hey Helix' locally only while Helix is open on screen.")
+}
+
 class MemoryRepository(context: Context) {
 
     private val prefs = context.getSharedPreferences("helix_memory_prefs", Context.MODE_PRIVATE)
@@ -23,6 +28,15 @@ class MemoryRepository(context: Context) {
 
     private val _endpointUrl = MutableStateFlow(getEndpointUrl())
     val endpointUrl: StateFlow<String> = _endpointUrl.asStateFlow()
+
+    private val _selectedGeminiModel = MutableStateFlow(getGeminiModel())
+    val selectedGeminiModel: StateFlow<String> = _selectedGeminiModel.asStateFlow()
+
+    private val _privacyMode = MutableStateFlow(getPrivacyMode())
+    val privacyModeFlow: StateFlow<PrivacyMode> = _privacyMode.asStateFlow()
+
+    private val _isBackgroundWakeWordEnabled = MutableStateFlow(isBackgroundWakeWordEnabled())
+    val isBackgroundWakeWordEnabledFlow: StateFlow<Boolean> = _isBackgroundWakeWordEnabled.asStateFlow()
 
     private val _isLlmVerified = MutableStateFlow(isLlmVerified())
     val isLlmVerifiedFlow: StateFlow<Boolean> = _isLlmVerified.asStateFlow()
@@ -42,6 +56,38 @@ class MemoryRepository(context: Context) {
             UserMemoryItem(id = "4", key = "Home Location", value = "Hyderabad", category = "Locations")
         )
         _memories.value = initialList
+    }
+
+    fun getPrivacyMode(): PrivacyMode {
+        val name = prefs.getString("user_privacy_mode", PrivacyMode.PUSH_TO_TALK.name) ?: PrivacyMode.PUSH_TO_TALK.name
+        return try {
+            PrivacyMode.valueOf(name)
+        } catch (e: Exception) {
+            PrivacyMode.PUSH_TO_TALK
+        }
+    }
+
+    fun savePrivacyMode(mode: PrivacyMode) {
+        prefs.edit().putString("user_privacy_mode", mode.name).apply()
+        _privacyMode.value = mode
+    }
+
+    fun isBackgroundWakeWordEnabled(): Boolean {
+        return prefs.getBoolean("bg_wake_word_enabled", false)
+    }
+
+    fun saveBackgroundWakeWordEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("bg_wake_word_enabled", enabled).apply()
+        _isBackgroundWakeWordEnabled.value = enabled
+    }
+
+    fun getGeminiModel(): String {
+        return prefs.getString("selected_gemini_model", "gemini-1.5-flash") ?: "gemini-1.5-flash"
+    }
+
+    fun saveGeminiModel(model: String) {
+        prefs.edit().putString("selected_gemini_model", model).apply()
+        _selectedGeminiModel.value = model
     }
 
     fun getAutonomyLevel(): AutonomyLevel {
@@ -86,7 +132,6 @@ class MemoryRepository(context: Context) {
     fun getApiKey(): String {
         val savedKey = prefs.getString("user_gemini_api_key", "")?.trim() ?: ""
         if (savedKey.isNotEmpty()) return savedKey
-        // Configured Google Services project key
         return "AIzaSyB3Kzm63G6s41pmeK9iuyqA4pL9gwfmFRE"
     }
 
