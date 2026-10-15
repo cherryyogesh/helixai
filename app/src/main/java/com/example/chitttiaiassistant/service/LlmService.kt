@@ -121,58 +121,69 @@ class LlmService {
             )
         }
 
-        // 4. Real Network Authentication Validation
+        // 4. Universal Provider Authentication & Connection Test
         try {
             when (provider) {
                 LlmProvider.GEMINI -> {
-                    val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$cleanKey")
+                    // Official Gemini Models List Authentication Endpoint
+                    val url = URL("https://generativelanguage.googleapis.com/v1beta/models?key=$cleanKey")
                     val conn = url.openConnection() as HttpURLConnection
-                    conn.requestMethod = "POST"
-                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.requestMethod = "GET"
                     conn.connectTimeout = 6000
                     conn.readTimeout = 6000
-                    conn.doOutput = true
 
-                    val payload = JSONObject().apply {
-                        put("contents", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("parts", JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("text", "ping")
-                                    })
-                                })
-                            })
-                        })
+                    val code = conn.responseCode
+                    if (code == 200) {
+                        LlmValidationResult(
+                            status = LlmConnectionStatus.CONNECTED,
+                            userMessage = "LLM connection verified successfully.",
+                            providerName = provider.displayName,
+                            modelName = defaultModel,
+                            keyFingerprint = fingerprint
+                        )
+                    } else {
+                        parseHttpResponseCode(code, provider.displayName, defaultModel, fingerprint)
                     }
-
-                    OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
-                    parseHttpResponseCode(conn.responseCode, provider.displayName, defaultModel, fingerprint)
                 }
 
                 LlmProvider.CLAUDE -> {
-                    val url = URL("https://api.anthropic.com/v1/messages")
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.requestMethod = "POST"
-                    conn.setRequestProperty("x-api-key", cleanKey)
-                    conn.setRequestProperty("anthropic-version", "2023-06-01")
-                    conn.setRequestProperty("Content-Type", "application/json")
-                    conn.connectTimeout = 6000
-                    conn.readTimeout = 6000
+                    val candidateModels = listOf("claude-3-haiku-20240307", "claude-3-5-sonnet-20240620", "claude-3-opus-20240229")
+                    var lastCode = 401
+                    for (m in candidateModels) {
+                        val url = URL("https://api.anthropic.com/v1/messages")
+                        val conn = url.openConnection() as HttpURLConnection
+                        conn.requestMethod = "POST"
+                        conn.setRequestProperty("x-api-key", cleanKey)
+                        conn.setRequestProperty("anthropic-version", "2023-06-01")
+                        conn.setRequestProperty("Content-Type", "application/json")
+                        conn.connectTimeout = 5000
+                        conn.readTimeout = 5000
 
-                    val payload = JSONObject().apply {
-                        put("model", defaultModel)
-                        put("max_tokens", 5)
-                        put("messages", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("role", "user")
-                                put("content", "ping")
+                        val payload = JSONObject().apply {
+                            put("model", m)
+                            put("max_tokens", 5)
+                            put("messages", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("role", "user")
+                                    put("content", "ping")
+                                })
                             })
-                        })
-                    }
-                    conn.doOutput = true
-                    OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
+                        }
+                        conn.doOutput = true
+                        OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
 
-                    parseHttpResponseCode(conn.responseCode, provider.displayName, defaultModel, fingerprint)
+                        lastCode = conn.responseCode
+                        if (lastCode == 200) {
+                            return@withContext LlmValidationResult(
+                                status = LlmConnectionStatus.CONNECTED,
+                                userMessage = "LLM connection verified successfully.",
+                                providerName = provider.displayName,
+                                modelName = m,
+                                keyFingerprint = fingerprint
+                            )
+                        }
+                    }
+                    parseHttpResponseCode(lastCode, provider.displayName, defaultModel, fingerprint)
                 }
 
                 LlmProvider.OPENAI -> {
@@ -252,7 +263,7 @@ class LlmService {
                 modelName = modelName,
                 keyFingerprint = fingerprint
             )
-            401, 403 -> LlmValidationResult(
+            400, 401, 403 -> LlmValidationResult(
                 status = LlmConnectionStatus.INVALID_KEY,
                 userMessage = "Invalid API key.",
                 providerName = providerName,
@@ -300,7 +311,7 @@ class LlmService {
             LlmProvider.GEMINI -> {
                 try {
                     val result = queryGeminiRestApi(apiKey, prompt)
-                    Pair(result, "Google Gemini 1.5 Flash")
+                    Pair(result, "Google Gemini LLM")
                 } catch (e: Exception) {
                     Pair("Error querying Gemini LLM: ${redactSecrets(e.localizedMessage ?: "")}", "Gemini Error")
                 }
@@ -341,74 +352,88 @@ class LlmService {
     }
 
     private fun queryGeminiRestApi(apiKey: String, prompt: String): String {
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.connectTimeout = 8000
-        conn.readTimeout = 8000
-        conn.doOutput = true
+        val modelNames = listOf("gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro", "gemini-1.0-pro")
+        for (modelName in modelNames) {
+            try {
+                val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
+                conn.doOutput = true
 
-        val payload = JSONObject().apply {
-            put("contents", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("parts", JSONArray().apply {
+                val payload = JSONObject().apply {
+                    put("contents", JSONArray().apply {
                         put(JSONObject().apply {
-                            put("text", prompt)
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", prompt)
+                                })
+                            })
                         })
                     })
-                })
-            })
-        }
-
-        OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
-
-        if (conn.responseCode == 200) {
-            val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(responseStr)
-            val candidates = json.optJSONArray("candidates")
-            if (candidates != null && candidates.length() > 0) {
-                val candidate = candidates.getJSONObject(0)
-                val contentObj = candidate.optJSONObject("content")
-                val parts = contentObj?.optJSONArray("parts")
-                if (parts != null && parts.length() > 0) {
-                    return parts.getJSONObject(0).getString("text").trim()
                 }
+
+                OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
+
+                if (conn.responseCode == 200) {
+                    val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(responseStr)
+                    val candidates = json.optJSONArray("candidates")
+                    if (candidates != null && candidates.length() > 0) {
+                        val candidate = candidates.getJSONObject(0)
+                        val contentObj = candidate.optJSONObject("content")
+                        val parts = contentObj?.optJSONArray("parts")
+                        if (parts != null && parts.length() > 0) {
+                            return parts.getJSONObject(0).getString("text").trim()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
         return "Gemini API query completed successfully."
     }
 
     private fun queryClaudeApi(apiKey: String, prompt: String): String {
-        val url = URL("https://api.anthropic.com/v1/messages")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("x-api-key", apiKey)
-        conn.setRequestProperty("anthropic-version", "2023-06-01")
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.connectTimeout = 8000
-        conn.readTimeout = 8000
-        conn.doOutput = true
+        val modelNames = listOf("claude-3-haiku-20240307", "claude-3-5-sonnet-20240620", "claude-3-opus-20240229")
+        for (modelName in modelNames) {
+            try {
+                val url = URL("https://api.anthropic.com/v1/messages")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("x-api-key", apiKey)
+                conn.setRequestProperty("anthropic-version", "2023-06-01")
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
+                conn.doOutput = true
 
-        val payload = JSONObject().apply {
-            put("model", "claude-3-haiku-20240307")
-            put("max_tokens", 300)
-            put("messages", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", prompt)
-                })
-            })
-        }
+                val payload = JSONObject().apply {
+                    put("model", modelName)
+                    put("max_tokens", 300)
+                    put("messages", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("role", "user")
+                            put("content", prompt)
+                        })
+                    })
+                }
 
-        OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
+                OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
 
-        if (conn.responseCode == 200) {
-            val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(responseStr)
-            val contentArr = json.getJSONArray("content")
-            if (contentArr.length() > 0) {
-                return contentArr.getJSONObject(0).getString("text").trim()
+                if (conn.responseCode == 200) {
+                    val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(responseStr)
+                    val contentArr = json.getJSONArray("content")
+                    if (contentArr.length() > 0) {
+                        return contentArr.getJSONObject(0).getString("text").trim()
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
         return "Claude response generated successfully."
