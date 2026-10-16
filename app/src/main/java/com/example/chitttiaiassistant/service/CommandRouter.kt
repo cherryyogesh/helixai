@@ -60,7 +60,17 @@ class CommandRouter(
         val currentSpeakerName = memoryRepository.findMemory("Active Speaker")?.value ?: "Yogesh"
         val speakerTitle = resolveTitleForSpeaker(currentSpeakerName)
 
-        // 2. Multi-Person Conversation Parsing (handling queries for multiple people)
+        // 2. Direct Calling without extra confirmation blocks
+        if (query.startsWith("call ") || query.startsWith("dial ") || query.contains("call cheyyi") || query.contains("ki call")) {
+            val rawTarget = query.replace("call ", "").replace("dial ", "").replace("call cheyyi", "").replace("ki call", "").trim()
+            val contactMatch = phoneControlManager.findPhoneNumberForContact(rawTarget)
+            val nameToCall = contactMatch?.first ?: memoryRepository.findMemory(rawTarget)?.value ?: rawTarget
+
+            val card = phoneControlManager.makeCall(nameToCall).copy(needsConfirmation = false)
+            return CommandResult("Placing call to ${card.contactName} now, $speakerTitle.", card)
+        }
+
+        // 3. Multi-Person Conversation Parsing
         if (query.contains(" and ") && (query.contains("says") || query.contains("asks") || query.contains("wants"))) {
             val parts = query.split(" and ")
             val replies = mutableListOf<String>()
@@ -139,14 +149,14 @@ class CommandRouter(
             return CommandResult("Listening suspended, $speakerTitle.")
         }
 
-        // Feature 1: Web Search / Browser Search
-        if (query.startsWith("search ") || query.startsWith("google ") || query.contains("browser") || query.contains("search web")) {
-            val searchQuery = query.replace("search ", "").replace("google ", "").replace("browser ", "").replace("for ", "").replace("search web ", "").trim()
+        // Web Search / Information Extraction via Gemini AI Knowledge Engine
+        if (query.startsWith("search ") || query.startsWith("google ") || query.contains("browser") || query.contains("search web") || query.startsWith("tell me about") || query.startsWith("what is ") || query.startsWith("who is ") || query.contains("extract")) {
+            val searchQuery = query.replace("search ", "").replace("google ", "").replace("browser ", "").replace("tell me about ", "").replace("for ", "").replace("search web ", "").trim()
             val (llmAnswer, _) = llmService.queryLlm(
                 memoryRepository.getLlmProvider(),
                 memoryRepository.getApiKey(),
                 memoryRepository.getEndpointUrl(),
-                "Perform a concise web search summary for: '$searchQuery'. Provide a clear, informative 2-sentence response in JARVIS assistant tone addressed politely to $speakerTitle."
+                "Perform an accurate informational web search summary for: '$searchQuery'. Provide a clear, informative 2 to 3 sentence response."
             )
 
             val searchCard = ActionResponseCard.QaCard(
@@ -157,14 +167,14 @@ class CommandRouter(
             return CommandResult(llmAnswer, searchCard)
         }
 
-        // Feature 2: Live Weather
+        // Live Weather
         if (query.contains("weather") || query.contains("temperature") || query.contains("forecast") || query.contains("climate") || query.contains("vaathavaranam")) {
             val location = if (query.contains("in ")) query.substringAfter("in ").trim() else "your current location"
             val (weatherSummary, _) = llmService.queryLlm(
                 memoryRepository.getLlmProvider(),
                 memoryRepository.getApiKey(),
                 memoryRepository.getEndpointUrl(),
-                "Give a concise current live weather report for $location. Mention estimated temperature, weather condition, high/low temps, and a brief 1-sentence summary addressed politely to $speakerTitle."
+                "Give a concise current live weather report for $location. Mention estimated temperature, weather condition, high/low temps, and a brief 1-sentence summary."
             )
 
             val weatherCard = ActionResponseCard.WeatherCard(
@@ -219,16 +229,7 @@ class CommandRouter(
             }
         }
 
-        // Hardware Controls 4: Calls & SMS
-        if (query.startsWith("call ") || query.startsWith("dial ") || query.contains("call cheyyi") || query.contains("ki call")) {
-            val rawTarget = query.replace("call ", "").replace("dial ", "").replace("call cheyyi", "").replace("ki call", "").trim()
-            val contactMatch = phoneControlManager.findPhoneNumberForContact(rawTarget)
-            val nameToCall = contactMatch?.first ?: memoryRepository.findMemory(rawTarget)?.value ?: rawTarget
-
-            val card = phoneControlManager.makeCall(nameToCall)
-            return CommandResult("Initiating call to ${card.contactName}, $speakerTitle.", card)
-        }
-
+        // Hardware Controls 4: Messaging / SMS / WhatsApp
         if (query.contains("whatsapp") || query.startsWith("message ") || query.startsWith("text ") || query.startsWith("sms ") || query.contains("message pampu")) {
             val raw = query.replace("whatsapp", "").replace("message ", "").replace("text ", "").replace("sms ", "").replace("message pampu", "").trim()
             val parts = raw.split(" that ", " ki ", limit = 2)

@@ -353,14 +353,16 @@ class LlmService {
 
     private fun queryGeminiRestApi(apiKey: String, prompt: String): String {
         val modelNames = listOf("gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro", "gemini-1.0-pro")
+        var lastError = ""
+
         for (modelName in modelNames) {
             try {
                 val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
                 conn.doOutput = true
 
                 val payload = JSONObject().apply {
@@ -377,7 +379,8 @@ class LlmService {
 
                 OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
 
-                if (conn.responseCode == 200) {
+                val code = conn.responseCode
+                if (code == 200) {
                     val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
                     val json = JSONObject(responseStr)
                     val candidates = json.optJSONArray("candidates")
@@ -386,15 +389,26 @@ class LlmService {
                         val contentObj = candidate.optJSONObject("content")
                         val parts = contentObj?.optJSONArray("parts")
                         if (parts != null && parts.length() > 0) {
-                            return parts.getJSONObject(0).getString("text").trim()
+                            val extractedText = parts.getJSONObject(0).optString("text", "").trim()
+                            if (extractedText.isNotEmpty()) {
+                                return extractedText
+                            }
                         }
                     }
+                } else {
+                    val errStream = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                    lastError = "HTTP $code: $errStream"
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                lastError = e.localizedMessage ?: "Network error"
             }
         }
-        return "Gemini API query completed successfully."
+
+        return if (lastError.isNotEmpty()) {
+            "I searched Google Gemini for you, but encountered an issue ($lastError). Please verify your API Key quota."
+        } else {
+            "Helix processed your request via Google Gemini."
+        }
     }
 
     private fun queryClaudeApi(apiKey: String, prompt: String): String {
