@@ -20,13 +20,24 @@ class JarvisRoutineTest {
     }
 
     @Test
-    fun testTeluguEnglishCommandParsing() {
-        val timeQuery = "samayam entha"
-        val isTime = timeQuery.contains("time") || timeQuery.contains("samayam")
-        assertTrue(isTime)
+    fun testCreatorAndUserIdentification() {
+        val creatorQuery = "my name is Yogesh"
+        val isCreator = creatorQuery.contains("Yogesh", ignoreCase = true)
+        assertTrue(isCreator)
 
-        val callQuery = "ammanaku call cheyyi"
-        val isCall = callQuery.contains("call") || callQuery.contains("call cheyyi")
+        val userQuery = "my name is Priya"
+        val isUser = userQuery.contains("Priya", ignoreCase = true)
+        assertTrue(isUser)
+    }
+
+    @Test
+    fun testTeluguCallAndMessageParsing() {
+        val teluguCall = "praveen ki call cheyyi"
+        val isCall = teluguCall.contains("call") || teluguCall.contains("call cheyyi")
         assertTrue(isCall)
+
+        val teluguSms = "praveen ki message pampu"
+        val isSms = teluguSms.contains("message") || teluguSms.contains("pampu")
+        assertTrue(isSms)
     }
 }

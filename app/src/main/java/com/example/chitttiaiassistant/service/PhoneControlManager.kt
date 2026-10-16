@@ -1,5 +1,6 @@
 package com.example.chitttiaiassistant.service
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -11,7 +12,9 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.provider.AlarmClock
+import android.provider.ContactsContract
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import com.example.chitttiaiassistant.model.ActionResponseCard
 
 data class InstalledAppInfo(
@@ -22,6 +25,35 @@ data class InstalledAppInfo(
 class PhoneControlManager(private val context: Context) {
 
     private var isTorchOn = false
+
+    fun findPhoneNumberForContact(queryName: String): Pair<String, String>? {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+        try {
+            val contentResolver = context.contentResolver
+            val cursor = contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                    ContactsContract.CommonDataKinds.Phone.NUMBER
+                ),
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
+                arrayOf("%$queryName%"),
+                null
+            )
+            cursor?.use { c ->
+                if (c.moveToFirst()) {
+                    val name = c.getString(c.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME))
+                    val number = c.getString(c.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER))
+                    return Pair(name, number)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
 
     fun toggleTorch(enable: Boolean? = null): ActionResponseCard.TorchCard {
         return try {
@@ -221,14 +253,12 @@ class PhoneControlManager(private val context: Context) {
     }
 
     fun makeCall(contactNameOrNumber: String): ActionResponseCard.CallCard {
-        val number = if (contactNameOrNumber.matches(Regex("^[0-9+ -]+$"))) {
-            contactNameOrNumber
-        } else {
-            "+1-800-555-0199"
-        }
+        val contactMatch = findPhoneNumberForContact(contactNameOrNumber)
+        val resolvedName = contactMatch?.first ?: contactNameOrNumber
+        val resolvedNumber = contactMatch?.second ?: if (contactNameOrNumber.matches(Regex("^[0-9+ -]+$"))) contactNameOrNumber else "+1-800-555-0199"
 
         val intent = Intent(Intent.ACTION_DIAL).apply {
-            data = Uri.parse("tel:$number")
+            data = Uri.parse("tel:$resolvedNumber")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         try {
@@ -238,15 +268,19 @@ class PhoneControlManager(private val context: Context) {
         }
 
         return ActionResponseCard.CallCard(
-            contactName = contactNameOrNumber,
-            phoneNumber = number,
+            contactName = resolvedName,
+            phoneNumber = resolvedNumber,
             needsConfirmation = true
         )
     }
 
     fun composeSms(contactName: String, text: String): ActionResponseCard.SmsCard {
+        val contactMatch = findPhoneNumberForContact(contactName)
+        val resolvedName = contactMatch?.first ?: contactName
+        val resolvedNumber = contactMatch?.second ?: ""
+
         val intent = Intent(Intent.ACTION_SENDTO).apply {
-            data = Uri.parse("smsto:")
+            data = Uri.parse(if (resolvedNumber.isNotEmpty()) "smsto:$resolvedNumber" else "smsto:")
             putExtra("sms_body", text)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -257,13 +291,16 @@ class PhoneControlManager(private val context: Context) {
         }
 
         return ActionResponseCard.SmsCard(
-            contactName = contactName,
+            contactName = resolvedName,
             messageText = text,
             needsConfirmation = true
         )
     }
 
     fun openWhatsAppMessage(contactName: String, text: String): ActionResponseCard.SmsCard {
+        val contactMatch = findPhoneNumberForContact(contactName)
+        val resolvedName = contactMatch?.first ?: contactName
+
         val intent = Intent(Intent.ACTION_VIEW).apply {
             data = Uri.parse("https://api.whatsapp.com/send?text=${Uri.encode(text)}")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -275,7 +312,7 @@ class PhoneControlManager(private val context: Context) {
         }
 
         return ActionResponseCard.SmsCard(
-            contactName = "$contactName (WhatsApp)",
+            contactName = "$resolvedName (WhatsApp)",
             messageText = text,
             needsConfirmation = true
         )

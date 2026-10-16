@@ -50,10 +50,11 @@ class MemoryRepository(context: Context) {
 
     private fun loadInitialMemories() {
         val initialList = listOf(
-            UserMemoryItem(id = "1", key = "User Name", value = "User", category = "Profile"),
-            UserMemoryItem(id = "2", key = "Nickname: Amma", value = "Mom (+1-800-555-0199)", category = "Contacts"),
-            UserMemoryItem(id = "3", key = "Preferred Music App", value = "YouTube Music", category = "Preferences"),
-            UserMemoryItem(id = "4", key = "Home Location", value = "Hyderabad", category = "Locations")
+            UserMemoryItem(id = "1", key = "Creator & Primary User", value = "Yogesh", category = "Profile"),
+            UserMemoryItem(id = "2", key = "Honorific Title for Yogesh", value = "Boss", category = "Profile"),
+            UserMemoryItem(id = "3", key = "Nickname: Amma", value = "Mom (+1-800-555-0199)", category = "Contacts"),
+            UserMemoryItem(id = "4", key = "Preferred Music App", value = "YouTube Music", category = "Preferences"),
+            UserMemoryItem(id = "5", key = "Home Location", value = "Hyderabad", category = "Locations")
         )
         _memories.value = initialList
     }
