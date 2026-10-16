@@ -19,6 +19,7 @@ class CommandRouter(
 ) {
 
     private val llmService = LlmService()
+    private var lastSpokenResponse: String = "I am Helix, your AI assistant."
 
     private fun resolveTitleForSpeaker(speakerName: String): String {
         val clean = speakerName.trim().lowercase()
@@ -26,35 +27,76 @@ class CommandRouter(
     }
 
     suspend fun processCommand(inputQuery: String): CommandResult {
+        val result = internalProcessCommand(inputQuery)
+        lastSpokenResponse = result.spokenResponse
+        return result
+    }
+
+    private suspend fun internalProcessCommand(inputQuery: String): CommandResult {
         val query = inputQuery.lowercase().trim()
 
-        // 1. YouTube Playback & Search Commands
+        // 1. Capability Inquiries ("What can you do?")
+        if (query.contains("what can you do") || query.contains("your capabilities") || query.contains("help me with")) {
+            val helpText = "I can control your phone, open installed apps, toggle flashlight, adjust volume, place calls, draft WhatsApp and SMS messages, set alarms and timers, check live weather, search Google, and answer questions. How can I assist you?"
+            val card = ActionResponseCard.SystemInfoCard(
+                title = "Helix Capabilities",
+                infoDetails = listOf(
+                    "Phone Controls" to "Flashlight, Volume, Apps, Settings",
+                    "Communication" to "Direct Calls, SMS, WhatsApp",
+                    "Productivity" to "Alarms, Timers, Reminders, Memory",
+                    "Intelligence" to "Multi-LLM, Live Weather, Web Search"
+                )
+            )
+            return CommandResult(helpText, card)
+        }
+
+        // 2. Repeat Last Response
+        if (query.contains("repeat") || query.contains("say that again") || query.contains("repeat last answer")) {
+            return CommandResult(lastSpokenResponse)
+        }
+
+        // 3. Timers and Alarms ("set a timer for 10 minutes", "wake me up at 7")
+        if (query.contains("timer")) {
+            val minutes = query.filter { it.isDigit() }.toIntOrNull() ?: 5
+            val msg = phoneControlManager.createTimer(minutes * 60, "Timer for $minutes minutes")
+            val card = ActionResponseCard.SystemInfoCard("Timer Set", listOf("Duration" to "$minutes minutes", "Status" to "Active"))
+            return CommandResult(msg, card)
+        }
+
+        if (query.contains("alarm") || query.contains("wake me up")) {
+            val hour = query.filter { it.isDigit() }.toIntOrNull() ?: 7
+            val msg = phoneControlManager.createAlarm(hour, 0, "Alarm for $hour:00")
+            val card = ActionResponseCard.SystemInfoCard("Alarm Set", listOf("Time" to "$hour:00", "Status" to "Active"))
+            return CommandResult(msg, card)
+        }
+
+        // 4. YouTube Playback & Search Commands
         if ((query.contains("youtube") || query.startsWith("play ")) && !query.contains("next") && !query.contains("skip") && !query.contains("pause")) {
             val musicQuery = query.replace("play ", "").replace("from youtube", "").replace("on youtube", "").replace("youtube", "").replace("songs", "song").trim()
             val card = phoneControlManager.playYouTubeSearch(if (musicQuery.isBlank()) "jailer 2 songs" else musicQuery)
-            return CommandResult("Searching and playing '$musicQuery' on YouTube for you, Boss!", card)
+            return CommandResult("Searching and playing '$musicQuery' on YouTube for you!", card)
         }
 
-        // 2. Media Playback Controls (Skip, Pause, Resume)
+        // 5. Media Playback Controls (Skip, Pause, Resume)
         if (query.contains("skip") || query.contains("next video") || query.contains("next track") || query.contains("next song")) {
             phoneControlManager.sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_NEXT)
             val card = ActionResponseCard.MediaCard("Next Video / Track", "Media Player", "YouTube / Media Player", true)
-            return CommandResult("Skipping to next video, Boss!", card)
+            return CommandResult("Skipping to next video.", card)
         }
 
         if (query == "pause" || query.contains("pause video") || query.contains("pause music") || query.contains("stop video")) {
             phoneControlManager.sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PAUSE)
             val card = ActionResponseCard.MediaCard("Media Paused", "Media Player", "YouTube / Media Player", false)
-            return CommandResult("Playback paused, Boss.", card)
+            return CommandResult("Playback paused.", card)
         }
 
         if (query == "resume" || query.contains("resume video") || query.contains("play video") || query.contains("resume music")) {
             phoneControlManager.sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY)
             val card = ActionResponseCard.MediaCard("Media Resumed", "Media Player", "YouTube / Media Player", true)
-            return CommandResult("Resuming playback, Boss!", card)
+            return CommandResult("Resuming playback.", card)
         }
 
-        // 3. Name Asking & Speaker Registration
+        // 6. Name Asking & Speaker Registration
         if (query.contains("who is speaking") || query.contains("who am i")) {
             val activeSpeaker = memoryRepository.findMemory("Active Speaker")?.value
             return if (activeSpeaker != null) {
@@ -87,7 +129,7 @@ class CommandRouter(
         val currentSpeakerName = memoryRepository.findMemory("Active Speaker")?.value ?: "Yogesh"
         val speakerTitle = resolveTitleForSpeaker(currentSpeakerName)
 
-        // 4. Messaging (WhatsApp & SMS) e.g., "send message to dad on whatsapp that i am coming late today"
+        // 7. Messaging (WhatsApp & SMS)
         if (query.contains("whatsapp") || query.startsWith("send message") || query.startsWith("message ") || query.startsWith("text ") || query.startsWith("sms ") || query.contains("message pampu")) {
             var raw = query.replace("send message to ", "").replace("send message ", "").replace("message ", "").replace("text ", "").replace("sms ", "").replace("message pampu", "").trim()
             val isWhatsApp = query.contains("whatsapp")
@@ -106,7 +148,7 @@ class CommandRouter(
             return CommandResult("Opening ${if (isWhatsApp) "WhatsApp" else "Messaging"} to send message to ${card.contactName}: '$messageBody', $speakerTitle!", card)
         }
 
-        // 5. Direct Calling without extra confirmation blocks
+        // 8. Direct Calling
         if (query.startsWith("call ") || query.startsWith("dial ") || query.contains("call cheyyi") || query.contains("ki call")) {
             val rawTarget = query.replace("call ", "").replace("dial ", "").replace("call cheyyi", "").replace("ki call", "").trim()
             val contactMatch = phoneControlManager.findPhoneNumberForContact(rawTarget)
@@ -116,7 +158,7 @@ class CommandRouter(
             return CommandResult("Placing call to ${card.contactName} now, $speakerTitle.", card)
         }
 
-        // 6. Multi-Person Conversation Parsing
+        // 9. Multi-Person Conversation Parsing
         if (query.contains(" and ") && (query.contains("says") || query.contains("asks") || query.contains("wants"))) {
             val parts = query.split(" and ")
             val replies = mutableListOf<String>()
@@ -275,12 +317,22 @@ class CommandRouter(
             }
         }
 
-        // Memory Queries / Store
+        // Memory Queries / Store ("Remember that...", "Forget that...")
         if (query.startsWith("remember that ") || query.startsWith("remember ")) {
             val content = query.replace("remember that ", "").replace("remember ", "")
             memoryRepository.addMemory("Fact", content)
             val card = ActionResponseCard.MemoryCard("Saved Fact", content, "Added to Memory")
             return CommandResult("Logged into personal memory, $speakerTitle: '$content'.", card)
+        }
+
+        if (query.startsWith("forget that ") || query.startsWith("forget ")) {
+            val target = query.replace("forget that ", "").replace("forget ", "")
+            val found = memoryRepository.findMemory(target)
+            if (found != null) {
+                memoryRepository.deleteMemory(found.id)
+                val card = ActionResponseCard.MemoryCard("Memory Deleted", found.key, "Removed")
+                return CommandResult("Forgotten '$target' from personal memory, $speakerTitle.", card)
+            }
         }
 
         // Universal Multi-LLM Response
