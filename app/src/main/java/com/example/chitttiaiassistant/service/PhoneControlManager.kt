@@ -290,39 +290,33 @@ class PhoneControlManager(private val context: Context) {
     fun makeCall(contactNameOrNumber: String): ActionResponseCard.CallCard {
         val contactMatch = findPhoneNumberForContact(contactNameOrNumber)
         val resolvedName = contactMatch?.first ?: contactNameOrNumber
-        val resolvedNumber = contactMatch?.second ?: if (contactNameOrNumber.matches(Regex("^[0-9+ -]+$"))) contactNameOrNumber else "+1-800-555-0199"
+        val rawNumber = contactMatch?.second ?: if (contactNameOrNumber.matches(Regex("^[0-9+ -]+$"))) contactNameOrNumber else "+18005550199"
+        val cleanNumber = rawNumber.replace(" ", "").replace("-", "")
 
-        val hasCallPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
-        val actionIntent = if (hasCallPermission) {
-            Intent(Intent.ACTION_CALL).apply {
-                data = Uri.parse("tel:$resolvedNumber")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        } else {
-            Intent(Intent.ACTION_DIAL).apply {
-                data = Uri.parse("tel:$resolvedNumber")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
+        val callIntent = Intent(Intent.ACTION_CALL).apply {
+            data = Uri.parse("tel:$cleanNumber")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
         try {
-            context.startActivity(actionIntent)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            try {
-                val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                    data = Uri.parse("tel:$resolvedNumber")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(dialIntent)
-            } catch (ex: Exception) {
-                ex.printStackTrace()
+            context.startActivity(callIntent)
+        } catch (e: SecurityException) {
+            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                data = Uri.parse("tel:$cleanNumber")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            try { context.startActivity(dialIntent) } catch (ex: Exception) { ex.printStackTrace() }
+        } catch (e: Exception) {
+            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                data = Uri.parse("tel:$cleanNumber")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            try { context.startActivity(dialIntent) } catch (ex: Exception) { ex.printStackTrace() }
         }
 
         return ActionResponseCard.CallCard(
             contactName = resolvedName,
-            phoneNumber = resolvedNumber,
+            phoneNumber = cleanNumber,
             needsConfirmation = false
         )
     }
