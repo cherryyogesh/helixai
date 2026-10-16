@@ -20,17 +20,8 @@ class MemoryRepository(context: Context) {
     private val _memories = MutableStateFlow<List<UserMemoryItem>>(emptyList())
     val memories: StateFlow<List<UserMemoryItem>> = _memories.asStateFlow()
 
-    private val _selectedProvider = MutableStateFlow(getLlmProvider())
-    val selectedProvider: StateFlow<LlmProvider> = _selectedProvider.asStateFlow()
-
-    private val _apiKey = MutableStateFlow(getApiKey())
-    val apiKey: StateFlow<String> = _apiKey.asStateFlow()
-
-    private val _endpointUrl = MutableStateFlow(getEndpointUrl())
-    val endpointUrl: StateFlow<String> = _endpointUrl.asStateFlow()
-
-    private val _selectedGeminiModel = MutableStateFlow(getGeminiModel())
-    val selectedGeminiModel: StateFlow<String> = _selectedGeminiModel.asStateFlow()
+    private val _serverEndpointUrl = MutableStateFlow(getServerEndpointUrl())
+    val serverEndpointUrlFlow: StateFlow<String> = _serverEndpointUrl.asStateFlow()
 
     private val _privacyMode = MutableStateFlow(getPrivacyMode())
     val privacyModeFlow: StateFlow<PrivacyMode> = _privacyMode.asStateFlow()
@@ -38,7 +29,7 @@ class MemoryRepository(context: Context) {
     private val _isBackgroundWakeWordEnabled = MutableStateFlow(isBackgroundWakeWordEnabled())
     val isBackgroundWakeWordEnabledFlow: StateFlow<Boolean> = _isBackgroundWakeWordEnabled.asStateFlow()
 
-    private val _isLlmVerified = MutableStateFlow(isLlmVerified())
+    private val _isLlmVerified = MutableStateFlow(true)
     val isLlmVerifiedFlow: StateFlow<Boolean> = _isLlmVerified.asStateFlow()
 
     private val _autonomyLevel = MutableStateFlow(getAutonomyLevel())
@@ -82,13 +73,14 @@ class MemoryRepository(context: Context) {
         _isBackgroundWakeWordEnabled.value = enabled
     }
 
-    fun getGeminiModel(): String {
-        return prefs.getString("selected_gemini_model", "gemini-1.5-flash") ?: "gemini-1.5-flash"
+    fun getServerEndpointUrl(): String {
+        return prefs.getString("helix_server_url", "http://10.0.2.2:8080") ?: "http://10.0.2.2:8080"
     }
 
-    fun saveGeminiModel(model: String) {
-        prefs.edit().putString("selected_gemini_model", model).apply()
-        _selectedGeminiModel.value = model
+    fun saveServerEndpointUrl(url: String) {
+        val cleanUrl = url.trim()
+        prefs.edit().putString("helix_server_url", cleanUrl).apply()
+        _serverEndpointUrl.value = cleanUrl
     }
 
     fun getAutonomyLevel(): AutonomyLevel {
@@ -105,55 +97,13 @@ class MemoryRepository(context: Context) {
         _autonomyLevel.value = level
     }
 
-    fun isLlmVerified(): Boolean {
-        val verified = prefs.getBoolean("user_llm_verified", false)
-        if (verified) return true
-        return getApiKey().isNotBlank()
-    }
+    fun isLlmVerified(): Boolean = true
 
-    fun setLlmVerified(verified: Boolean) {
-        prefs.edit().putBoolean("user_llm_verified", verified).apply()
-        _isLlmVerified.value = verified
-    }
+    fun getLlmProvider(): LlmProvider = LlmProvider.GEMINI
 
-    fun getLlmProvider(): LlmProvider {
-        val name = prefs.getString("selected_llm_provider", LlmProvider.GEMINI.name) ?: LlmProvider.GEMINI.name
-        return try {
-            LlmProvider.valueOf(name)
-        } catch (e: Exception) {
-            LlmProvider.GEMINI
-        }
-    }
+    fun getApiKey(): String = ""
 
-    fun saveLlmProvider(provider: LlmProvider) {
-        prefs.edit().putString("selected_llm_provider", provider.name).apply()
-        _selectedProvider.value = provider
-    }
-
-    fun getApiKey(): String {
-        val savedKey = prefs.getString("user_gemini_api_key", "")?.trim() ?: ""
-        if (savedKey.isNotEmpty()) return savedKey
-        return "AIzaSyB3Kzm63G6s41pmeK9iuyqA4pL9gwfmFRE"
-    }
-
-    fun saveApiKey(key: String) {
-        val cleanKey = key.trim()
-        prefs.edit().putString("user_gemini_api_key", cleanKey).apply()
-        _apiKey.value = cleanKey
-        if (cleanKey.isNotEmpty()) {
-            setLlmVerified(true)
-        }
-    }
-
-    fun getEndpointUrl(): String {
-        return prefs.getString("user_llm_endpoint_url", "http://10.0.2.2:11434") ?: "http://10.0.2.2:11434"
-    }
-
-    fun saveEndpointUrl(url: String) {
-        val cleanUrl = url.trim()
-        prefs.edit().putString("user_llm_endpoint_url", cleanUrl).apply()
-        _endpointUrl.value = cleanUrl
-    }
+    fun getEndpointUrl(): String = getServerEndpointUrl()
 
     fun addMemory(key: String, value: String, category: String = "General") {
         val newItem = UserMemoryItem(key = key, value = value, category = category)

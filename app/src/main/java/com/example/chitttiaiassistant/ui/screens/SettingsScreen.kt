@@ -21,15 +21,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -43,7 +40,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chitttiaiassistant.model.AutonomyLevel
@@ -91,18 +87,13 @@ fun SettingsScreen(
 ) {
     val coroutineScope = rememberCoroutineScope()
 
-    var selectedProvider by remember { mutableStateOf(currentProvider) }
-    var selectedModel by remember { mutableStateOf(selectedGeminiModel) }
     var selectedPrivacy by remember { mutableStateOf(currentPrivacyMode) }
     var bgWakeWordState by remember { mutableStateOf(isBgWakeWordEnabled) }
-
-    var apiKeyInput by remember { mutableStateOf(currentApiKey) }
-    var endpointInput by remember { mutableStateOf(currentEndpointUrl) }
 
     var isValidating by remember { mutableStateOf(false) }
     var validationResult by remember {
         mutableStateOf<LlmValidationResult?>(
-            if (isVerified) LlmValidationResult(LlmConnectionStatus.CONNECTED, "Verified", currentProvider.displayName, selectedModel) else null
+            LlmValidationResult(LlmConnectionStatus.CONNECTED, "Connected to Helix server", "Helix Server Managed", "Automatic")
         )
     }
 
@@ -121,7 +112,7 @@ fun SettingsScreen(
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 2.sp
             )
-            Text(text = "Voice privacy, Gemini models & system controls", color = TextSecondary, fontSize = 13.sp)
+            Text(text = "Voice privacy, AI server connection & system controls", color = TextSecondary, fontSize = 13.sp)
 
             Spacer(modifier = Modifier.height(20.dp))
 
@@ -149,7 +140,77 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(text = "Helix User Profile", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                        Text(text = "Active LLM: ${selectedProvider.displayName} ($selectedModel)", color = BrightCyan, fontSize = 13.sp)
+                        Text(text = "AI Connection: Server Managed", color = BrightCyan, fontSize = 13.sp)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Server-Managed AI Connection Section (Zero API Key in App UI)
+            Text(text = "AI CONNECTION", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, AccentGreen, RoundedCornerShape(16.dp)),
+                colors = CardDefaults.cardColors(containerColor = CardBackground)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Key, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "AI Server Status", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DarkBackground)
+                            .border(1.dp, AccentGreen.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(14.dp)
+                    ) {
+                        Text(text = "Server Status: Connected to Helix server", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "Provider Selection: Automatic", color = BrightCyan, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "AI Status: Ready", color = AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Your API keys are managed securely by the server. No API key is required in the app.",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                isValidating = true
+                                val res = onValidateLlmConfig(currentProvider, "", currentEndpointUrl)
+                                isValidating = false
+                                validationResult = res
+                            }
+                        },
+                        enabled = !isValidating,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        if (isValidating) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = DarkBackground, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Reconnecting...", color = DarkBackground, fontWeight = FontWeight.Bold)
+                        } else {
+                            Text("Reconnect to AI Server 🔄", color = DarkBackground, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -222,178 +283,6 @@ fun SettingsScreen(
                             },
                             colors = SwitchDefaults.colors(checkedThumbColor = DarkBackground, checkedTrackColor = NeonCyan)
                         )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // AI LLM Engine Configuration & Gemini Model Selector
-            Text(text = "AI LLM CONFIGURATION & GEMINI MODELS", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(
-                        1.dp,
-                        when (validationResult?.status) {
-                            LlmConnectionStatus.CONNECTED -> AccentGreen
-                            null -> NeonCyan
-                            else -> AccentError
-                        },
-                        RoundedCornerShape(16.dp)
-                    ),
-                colors = CardDefaults.cardColors(containerColor = CardBackground)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Key, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(22.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "LLM Provider & Model", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Provider Selection Chips
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        LlmProvider.entries.forEach { provider ->
-                            val isSelected = selectedProvider == provider
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) NeonCyan.copy(alpha = 0.2f) else DarkBackground)
-                                    .border(1.dp, if (isSelected) NeonCyan else GlowingBorder, RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        selectedProvider = provider
-                                        validationResult = null
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(text = provider.displayName, color = if (isSelected) NeonCyan else TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                    if (isSelected) Text(text = "✓ Selected", color = NeonCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-
-                    if (selectedProvider == LlmProvider.GEMINI) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(text = "Gemini Model Selection (Auto-Detected Supported Versions):", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        val geminiModels = listOf("gemini-3.6-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro")
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            geminiModels.forEach { m ->
-                                val isMSelected = selectedModel == m
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isMSelected) BrightCyan.copy(alpha = 0.2f) else DarkBackground)
-                                        .border(1.dp, if (isMSelected) BrightCyan else GlowingBorder, RoundedCornerShape(8.dp))
-                                        .clickable {
-                                            selectedModel = m
-                                            onSaveGeminiModel(m)
-                                        }
-                                        .padding(vertical = 8.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(text = m.replace("gemini-", ""), color = if (isMSelected) BrightCyan else TextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (selectedProvider == LlmProvider.OLLAMA || selectedProvider == LlmProvider.CUSTOM) {
-                        OutlinedTextField(
-                            value = endpointInput,
-                            onValueChange = {
-                                endpointInput = it
-                                validationResult = null
-                            },
-                            label = { Text("${selectedProvider.displayName} Endpoint URL") },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = NeonCyan, unfocusedBorderColor = GlowingBorder, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary
-                            ),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    } else {
-                        OutlinedTextField(
-                            value = apiKeyInput,
-                            onValueChange = {
-                                apiKeyInput = it
-                                validationResult = null
-                            },
-                            label = { Text("${selectedProvider.displayName} API Key") },
-                            placeholder = { Text("Paste your API key here...") },
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = NeonCyan, unfocusedBorderColor = GlowingBorder, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary
-                            ),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    validationResult?.let { res ->
-                        Text(
-                            text = if (res.status == LlmConnectionStatus.CONNECTED) "✓ ${res.userMessage}" else "⚠️ ${res.userMessage}",
-                            color = if (res.status == LlmConnectionStatus.CONNECTED) AccentGreen else AccentError,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            coroutineScope.launch {
-                                isValidating = true
-                                validationResult = null
-                                val res = onValidateLlmConfig(selectedProvider, apiKeyInput, endpointInput)
-                                isValidating = false
-                                validationResult = res
-                                if (res.status == LlmConnectionStatus.CONNECTED && res.modelName.isNotEmpty()) {
-                                    selectedModel = res.modelName
-                                    onSaveGeminiModel(res.modelName)
-                                }
-                            }
-                        },
-                        enabled = !isValidating,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = when (validationResult?.status) {
-                                LlmConnectionStatus.CONNECTED -> AccentGreen
-                                null -> NeonCyan
-                                else -> AccentError
-                            }
-                        )
-                    ) {
-                        if (isValidating) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = DarkBackground, strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Detecting Models & Connecting...", color = DarkBackground, fontWeight = FontWeight.Bold)
-                        } else {
-                            Text(
-                                text = when (validationResult?.status) {
-                                    LlmConnectionStatus.CONNECTED -> "✓ Verified & Model Auto-Detected"
-                                    null -> "Detect Gemini Version & Connect ➔"
-                                    else -> "Retry LLM Connection"
-                                },
-                                color = DarkBackground,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
                     }
                 }
             }

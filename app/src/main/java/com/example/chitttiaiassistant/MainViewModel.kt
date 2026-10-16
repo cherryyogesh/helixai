@@ -77,12 +77,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Repository States
     val memories: StateFlow<List<UserMemoryItem>> = memoryRepository.memories
     val automations: StateFlow<List<AutomationItem>> = automationRepository.automations
-    val selectedLlmProvider: StateFlow<LlmProvider> = memoryRepository.selectedProvider
-    val apiKey: StateFlow<String> = memoryRepository.apiKey
-    val llmEndpointUrl: StateFlow<String> = memoryRepository.endpointUrl
+    val selectedLlmProvider: StateFlow<LlmProvider> = MutableStateFlow(LlmProvider.GEMINI).asStateFlow()
+    val apiKey: StateFlow<String> = MutableStateFlow("").asStateFlow()
+    val llmEndpointUrl: StateFlow<String> = memoryRepository.serverEndpointUrlFlow
     val isLlmVerified: StateFlow<Boolean> = memoryRepository.isLlmVerifiedFlow
     val autonomyLevel: StateFlow<AutonomyLevel> = memoryRepository.autonomyLevelFlow
-    val selectedGeminiModel: StateFlow<String> = memoryRepository.selectedGeminiModel
+    val selectedGeminiModel: StateFlow<String> = MutableStateFlow("gemini-3.6-flash").asStateFlow()
     val privacyMode: StateFlow<PrivacyMode> = memoryRepository.privacyModeFlow
     val isBgWakeWordEnabled: StateFlow<Boolean> = memoryRepository.isBackgroundWakeWordEnabledFlow
 
@@ -123,9 +123,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         memoryRepository.saveBackgroundWakeWordEnabled(enabled)
     }
 
-    fun saveGeminiModel(model: String) {
-        memoryRepository.saveGeminiModel(model)
-    }
+    fun saveGeminiModel(model: String) {}
 
     fun exitHelix() {
         ForegroundListeningService.stopService(context)
@@ -133,21 +131,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun validateLlmConfig(provider: LlmProvider, key: String, endpointUrl: String): LlmValidationResult {
-        val result = llmService.testConnection(provider, key, endpointUrl, selectedGeminiModel.value)
-        val isSuccess = result.status == LlmConnectionStatus.CONNECTED
-        memoryRepository.setLlmVerified(isSuccess)
-        if (isSuccess) {
-            memoryRepository.saveLlmProvider(provider)
-            memoryRepository.saveApiKey(key)
-            memoryRepository.saveEndpointUrl(endpointUrl)
-        }
-        return result
+        return llmService.testServerConnection(endpointUrl)
     }
 
     fun saveLlmConfig(provider: LlmProvider, key: String, endpointUrl: String) {
-        memoryRepository.saveLlmProvider(provider)
-        if (key.isNotBlank()) memoryRepository.saveApiKey(key)
-        if (endpointUrl.isNotBlank()) memoryRepository.saveEndpointUrl(endpointUrl)
+        if (endpointUrl.isNotBlank()) memoryRepository.saveServerEndpointUrl(endpointUrl)
     }
 
     fun selectTab(index: Int) {
