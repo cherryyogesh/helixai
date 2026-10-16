@@ -14,6 +14,7 @@ import android.os.Build
 import android.provider.AlarmClock
 import android.provider.ContactsContract
 import android.provider.Settings
+import android.view.KeyEvent
 import androidx.core.content.ContextCompat
 import com.example.chitttiaiassistant.model.ActionResponseCard
 
@@ -25,6 +26,40 @@ data class InstalledAppInfo(
 class PhoneControlManager(private val context: Context) {
 
     private var isTorchOn = false
+
+    fun sendMediaKeyEvent(keyCode: Int) {
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val eventDown = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+            val eventUp = KeyEvent(KeyEvent.ACTION_UP, keyCode)
+            audioManager.dispatchMediaKeyEvent(eventDown)
+            audioManager.dispatchMediaKeyEvent(eventUp)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun playYouTubeSearch(searchQuery: String): ActionResponseCard.MediaCard {
+        val intent = Intent(Intent.ACTION_SEARCH).apply {
+            setPackage("com.google.android.youtube")
+            putExtra("query", searchQuery)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=${Uri.encode(searchQuery)}")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            try { context.startActivity(webIntent) } catch (ex: Exception) { ex.printStackTrace() }
+        }
+        return ActionResponseCard.MediaCard(
+            title = searchQuery,
+            artist = "YouTube",
+            appName = "YouTube",
+            isPlaying = true
+        )
+    }
 
     fun findPhoneNumberForContact(queryName: String): Pair<String, String>? {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
@@ -270,7 +305,7 @@ class PhoneControlManager(private val context: Context) {
         return ActionResponseCard.CallCard(
             contactName = resolvedName,
             phoneNumber = resolvedNumber,
-            needsConfirmation = true
+            needsConfirmation = false
         )
     }
 
@@ -293,7 +328,7 @@ class PhoneControlManager(private val context: Context) {
         return ActionResponseCard.SmsCard(
             contactName = resolvedName,
             messageText = text,
-            needsConfirmation = true
+            needsConfirmation = false
         )
     }
 
@@ -314,7 +349,7 @@ class PhoneControlManager(private val context: Context) {
         return ActionResponseCard.SmsCard(
             contactName = "$resolvedName (WhatsApp)",
             messageText = text,
-            needsConfirmation = true
+            needsConfirmation = false
         )
     }
 

@@ -1,5 +1,6 @@
 package com.example.chitttiaiassistant.service
 
+import android.view.KeyEvent
 import com.example.chitttiaiassistant.model.ActionResponseCard
 import com.example.chitttiaiassistant.model.HourlyTemp
 import com.example.chitttiaiassistant.repository.MemoryRepository
@@ -27,7 +28,33 @@ class CommandRouter(
     suspend fun processCommand(inputQuery: String): CommandResult {
         val query = inputQuery.lowercase().trim()
 
-        // 1. Name Asking & Speaker Registration
+        // 1. YouTube Playback & Search Commands
+        if ((query.contains("youtube") || query.startsWith("play ")) && !query.contains("next") && !query.contains("skip") && !query.contains("pause")) {
+            val musicQuery = query.replace("play ", "").replace("from youtube", "").replace("on youtube", "").replace("youtube", "").replace("songs", "song").trim()
+            val card = phoneControlManager.playYouTubeSearch(if (musicQuery.isBlank()) "jailer 2 songs" else musicQuery)
+            return CommandResult("Searching and playing '$musicQuery' on YouTube for you, Boss!", card)
+        }
+
+        // 2. Media Playback Controls (Skip, Pause, Resume)
+        if (query.contains("skip") || query.contains("next video") || query.contains("next track") || query.contains("next song")) {
+            phoneControlManager.sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_NEXT)
+            val card = ActionResponseCard.MediaCard("Next Video / Track", "Media Player", "YouTube / Media Player", true)
+            return CommandResult("Skipping to next video, Boss!", card)
+        }
+
+        if (query == "pause" || query.contains("pause video") || query.contains("pause music") || query.contains("stop video")) {
+            phoneControlManager.sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PAUSE)
+            val card = ActionResponseCard.MediaCard("Media Paused", "Media Player", "YouTube / Media Player", false)
+            return CommandResult("Playback paused, Boss.", card)
+        }
+
+        if (query == "resume" || query.contains("resume video") || query.contains("play video") || query.contains("resume music")) {
+            phoneControlManager.sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY)
+            val card = ActionResponseCard.MediaCard("Media Resumed", "Media Player", "YouTube / Media Player", true)
+            return CommandResult("Resuming playback, Boss!", card)
+        }
+
+        // 3. Name Asking & Speaker Registration
         if (query.contains("who is speaking") || query.contains("who am i")) {
             val activeSpeaker = memoryRepository.findMemory("Active Speaker")?.value
             return if (activeSpeaker != null) {
@@ -60,7 +87,26 @@ class CommandRouter(
         val currentSpeakerName = memoryRepository.findMemory("Active Speaker")?.value ?: "Yogesh"
         val speakerTitle = resolveTitleForSpeaker(currentSpeakerName)
 
-        // 2. Direct Calling without extra confirmation blocks
+        // 4. Messaging (WhatsApp & SMS) e.g., "send message to dad on whatsapp that i am coming late today"
+        if (query.contains("whatsapp") || query.startsWith("send message") || query.startsWith("message ") || query.startsWith("text ") || query.startsWith("sms ") || query.contains("message pampu")) {
+            var raw = query.replace("send message to ", "").replace("send message ", "").replace("message ", "").replace("text ", "").replace("sms ", "").replace("message pampu", "").trim()
+            val isWhatsApp = query.contains("whatsapp")
+            if (isWhatsApp) raw = raw.replace("on whatsapp", "").replace("whatsapp", "").trim()
+
+            val parts = if (raw.contains(" that ")) raw.split(" that ", limit = 2) else raw.split(" ki ", limit = 2)
+            val targetContact = parts.getOrNull(0)?.trim() ?: "Dad"
+            val messageBody = if (parts.size > 1) parts[1].trim() else "I am coming late today"
+
+            val card = if (isWhatsApp) {
+                phoneControlManager.openWhatsAppMessage(targetContact, messageBody)
+            } else {
+                phoneControlManager.composeSms(targetContact, messageBody)
+            }
+
+            return CommandResult("Opening ${if (isWhatsApp) "WhatsApp" else "Messaging"} to send message to ${card.contactName}: '$messageBody', $speakerTitle!", card)
+        }
+
+        // 5. Direct Calling without extra confirmation blocks
         if (query.startsWith("call ") || query.startsWith("dial ") || query.contains("call cheyyi") || query.contains("ki call")) {
             val rawTarget = query.replace("call ", "").replace("dial ", "").replace("call cheyyi", "").replace("ki call", "").trim()
             val contactMatch = phoneControlManager.findPhoneNumberForContact(rawTarget)
@@ -70,7 +116,7 @@ class CommandRouter(
             return CommandResult("Placing call to ${card.contactName} now, $speakerTitle.", card)
         }
 
-        // 3. Multi-Person Conversation Parsing
+        // 6. Multi-Person Conversation Parsing
         if (query.contains(" and ") && (query.contains("says") || query.contains("asks") || query.contains("wants"))) {
             val parts = query.split(" and ")
             val replies = mutableListOf<String>()
@@ -227,16 +273,6 @@ class CommandRouter(
             } else {
                 CommandResult("I couldn't find ${card.appName} installed on your device, $speakerTitle.", card)
             }
-        }
-
-        // Hardware Controls 4: Messaging / SMS / WhatsApp
-        if (query.contains("whatsapp") || query.startsWith("message ") || query.startsWith("text ") || query.startsWith("sms ") || query.contains("message pampu")) {
-            val raw = query.replace("whatsapp", "").replace("message ", "").replace("text ", "").replace("sms ", "").replace("message pampu", "").trim()
-            val parts = raw.split(" that ", " ki ", limit = 2)
-            val contact = parts.getOrNull(0) ?: "Contact"
-            val textMsg = if (parts.size > 1) parts[1] else "Hello from Helix!"
-            val card = phoneControlManager.composeSms(contact, textMsg)
-            return CommandResult("Drafted message to ${card.contactName}: '$textMsg', $speakerTitle.", card)
         }
 
         // Memory Queries / Store
