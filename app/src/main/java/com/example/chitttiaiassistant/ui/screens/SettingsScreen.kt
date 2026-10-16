@@ -18,29 +18,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -97,11 +91,8 @@ fun SettingsScreen(
 ) {
     val coroutineScope = rememberCoroutineScope()
 
-    var pitch by remember { mutableFloatStateOf(1.0f) }
-    var speed by remember { mutableFloatStateOf(1.0f) }
     var selectedProvider by remember { mutableStateOf(currentProvider) }
     var selectedModel by remember { mutableStateOf(selectedGeminiModel) }
-    var selectedAutonomy by remember { mutableStateOf(currentAutonomyLevel) }
     var selectedPrivacy by remember { mutableStateOf(currentPrivacyMode) }
     var bgWakeWordState by remember { mutableStateOf(isBgWakeWordEnabled) }
 
@@ -293,10 +284,10 @@ fun SettingsScreen(
 
                     if (selectedProvider == LlmProvider.GEMINI) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text(text = "Gemini Model Selection:", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "Gemini Model Selection (Auto-Detected Supported Versions):", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(6.dp))
-                        val geminiModels = listOf("gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp")
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val geminiModels = listOf("gemini-3.6-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro")
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             geminiModels.forEach { m ->
                                 val isMSelected = selectedModel == m
                                 Box(
@@ -312,7 +303,7 @@ fun SettingsScreen(
                                         .padding(vertical = 8.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(text = m.replace("gemini-", ""), color = if (isMSelected) BrightCyan else TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(text = m.replace("gemini-", ""), color = if (isMSelected) BrightCyan else TextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -355,15 +346,13 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     validationResult?.let { res ->
-                        if (res.status != LlmConnectionStatus.CONNECTED) {
-                            Text(
-                                text = "⚠️ ${res.userMessage}",
-                                color = AccentError,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                        }
+                        Text(
+                            text = if (res.status == LlmConnectionStatus.CONNECTED) "✓ ${res.userMessage}" else "⚠️ ${res.userMessage}",
+                            color = if (res.status == LlmConnectionStatus.CONNECTED) AccentGreen else AccentError,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
                     }
 
                     Button(
@@ -374,6 +363,10 @@ fun SettingsScreen(
                                 val res = onValidateLlmConfig(selectedProvider, apiKeyInput, endpointInput)
                                 isValidating = false
                                 validationResult = res
+                                if (res.status == LlmConnectionStatus.CONNECTED && res.modelName.isNotEmpty()) {
+                                    selectedModel = res.modelName
+                                    onSaveGeminiModel(res.modelName)
+                                }
                             }
                         },
                         enabled = !isValidating,
@@ -389,12 +382,12 @@ fun SettingsScreen(
                         if (isValidating) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = DarkBackground, strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Connecting...", color = DarkBackground, fontWeight = FontWeight.Bold)
+                            Text("Detecting Models & Connecting...", color = DarkBackground, fontWeight = FontWeight.Bold)
                         } else {
                             Text(
                                 text = when (validationResult?.status) {
-                                    LlmConnectionStatus.CONNECTED -> "✓ Connected & Saved"
-                                    null -> "Test Gemini Connection ➔"
+                                    LlmConnectionStatus.CONNECTED -> "✓ Verified & Model Auto-Detected"
+                                    null -> "Detect Gemini Version & Connect ➔"
                                     else -> "Retry LLM Connection"
                                 },
                                 color = DarkBackground,

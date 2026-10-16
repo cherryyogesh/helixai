@@ -82,7 +82,7 @@ class LlmService {
     ): LlmValidationResult = withContext(Dispatchers.IO) {
         val cleanKey = apiKey.trim()
         val defaultModel = when (provider) {
-            LlmProvider.GEMINI -> if (modelName.isBlank()) "gemini-1.5-flash" else modelName
+            LlmProvider.GEMINI -> if (modelName.isBlank()) "gemini-3.6-flash" else modelName
             LlmProvider.CLAUDE -> if (modelName.isBlank()) "claude-3-haiku-20240307" else modelName
             LlmProvider.OPENAI -> if (modelName.isBlank()) "gpt-4o-mini" else modelName
             LlmProvider.OLLAMA -> if (modelName.isBlank()) "llama3" else modelName
@@ -121,7 +121,7 @@ class LlmService {
             )
         }
 
-        // 4. Universal Provider Authentication & Connection Test
+        // 4. Universal Provider Authentication & Dynamic Model Detection
         try {
             when (provider) {
                 LlmProvider.GEMINI -> {
@@ -133,11 +133,37 @@ class LlmService {
 
                     val code = conn.responseCode
                     if (code == 200) {
+                        val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(responseStr)
+                        val modelsArr = json.optJSONArray("models")
+                        var detectedModel = defaultModel
+
+                        if (modelsArr != null && modelsArr.length() > 0) {
+                            val availableModels = mutableListOf<String>()
+                            for (i in 0 until modelsArr.length()) {
+                                val m = modelsArr.getJSONObject(i)
+                                val mName = m.optString("name", "").replace("models/", "")
+                                val methods = m.optJSONArray("supportedGenerationMethods")
+                                val supportsGen = methods != null && (0 until methods.length()).any { methods.getString(it) == "generateContent" }
+                                if (supportsGen && mName.isNotEmpty()) {
+                                    availableModels.add(mName)
+                                }
+                            }
+
+                            // Match latest Gemini Flash / Pro models
+                            val matchedModel = availableModels.firstOrNull { it.contains("3.6") || it.contains("2.5") || it.contains("2.0") || it.contains("flash") }
+                            if (matchedModel != null) {
+                                detectedModel = matchedModel
+                            } else if (availableModels.isNotEmpty()) {
+                                detectedModel = availableModels.first()
+                            }
+                        }
+
                         LlmValidationResult(
                             status = LlmConnectionStatus.CONNECTED,
-                            userMessage = "LLM connection verified successfully.",
+                            userMessage = "Verified! Auto-detected model: $detectedModel",
                             providerName = provider.displayName,
-                            modelName = defaultModel,
+                            modelName = detectedModel,
                             keyFingerprint = fingerprint
                         )
                     } else {
@@ -351,7 +377,7 @@ class LlmService {
     }
 
     private fun queryGeminiRestApi(apiKey: String, prompt: String): String {
-        val modelNames = listOf("gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp")
+        val modelNames = listOf("gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro")
 
         for (modelName in modelNames) {
             try {
